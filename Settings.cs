@@ -19,14 +19,20 @@ public sealed class AppSettings
 
     public static AppSettings Current { get; private set; } = Load();
 
-    /// <summary>Web'de arama önerilerini etkinleştir (bulunamayan sorgular için tarayıcıda ara).</summary>
+    /// <summary>Web'de arama önerilerini etkinleştir.</summary>
     public bool EnableWebSearch { get; set; } = true;
 
     /// <summary>Varsayılan arama motoru: Google, DuckDuckGo, Bing, Yandex, Ecosia.</summary>
     public string SearchEngine { get; set; } = "Google";
 
-    /// <summary>true ise yerel sonuç çıksa bile listenin en altına web araması eklenir.</summary>
-    public bool AlwaysShowWebSearch { get; set; } = false;
+    /// <summary>true ise yerel sonuç çıksa bile listenin en altına her zaman web araması eklenir.</summary>
+    public bool AlwaysShowWebSearch { get; set; } = true;
+
+    /// <summary>Web araması kartının listenin en üstte gösterilmesi tercihidir.</summary>
+    public bool AlwaysShowWebSearchAtTop { get; set; } = true;
+
+    /// <summary>Hotkey string, e.g. "Alt+Space".</summary>
+    public string Hotkey { get; set; } = "Alt+Space";
 
     public static event Action? OnSettingsChanged;
 

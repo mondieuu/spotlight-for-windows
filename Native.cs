@@ -12,8 +12,8 @@ internal static class Native
 {
     // ---- Genel kısayol tuşu
     public const int WM_HOTKEY = 0x0312;
-    public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_NOREPEAT = 0x4000;
-    public const uint VK_SPACE = 0x20;
+    public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_WIN = 0x8, MOD_NOREPEAT = 0x4000;
+    public const uint VK_SPACE = 0x20, VK_RETURN = 0x0D;
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);

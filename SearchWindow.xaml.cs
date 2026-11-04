@@ -28,7 +28,7 @@ public partial class SearchWindow : Window
     public Action<string, string, string?>? Notify { get; set; }
 
     /// <summary>Kayıtlı kısayol: "Alt + Boşluk" ya da yedek "Ctrl + Boşluk".</summary>
-    public string HotkeyText { get; private set; } = "Alt + Boşluk";
+    public string HotkeyText { get; set; } = "Alt + Boşluk";
 
     // Yay animasyonları (Apple: tepki + sönüm). Hepsi kritik sönümlü: sıçrama yok, sakin yerleşme.
     private readonly Spring _open;    // 0 = kapalı, 1 = açık (saydamlık + ölçek)
@@ -327,19 +327,14 @@ public partial class SearchWindow : Window
         // SPOTLIGHT_DEMO=1: tanıtım ekran görüntülerinde kişisel dosya yolları görünmesin.
         searchFiles = text.Length >= 2 && Environment.GetEnvironmentVariable("SPOTLIGHT_DEMO") != "1";
 
-        // Web araması ekleme mantığı:
+        // Web araması seçeneği: Kullanıcı bir şey yazdığında her zaman listeye eklenir
         if (AppSettings.Current.EnableWebSearch)
         {
-            if (found.Count == 0)
-            {
-                // Bilgisayarda uygulama/ayar bulunamadı: anında web arama seçeneğini ekle
-                list.Add(WebSearchItem(text, isFallback: true));
-            }
-            else if (AppSettings.Current.AlwaysShowWebSearch && !searchFiles)
-            {
-                // Kısa sorgularda dosya aranmayacağı için doğrudan sona ekle
-                list.Add(WebSearchItem(text, isFallback: false));
-            }
+            var webItem = WebSearchItem(text, isFallback: found.Count == 0);
+            if (AppSettings.Current.AlwaysShowWebSearchAtTop)
+                list.Insert(0, webItem);
+            else
+                list.Add(webItem);
         }
 
         return list;
@@ -366,37 +361,25 @@ public partial class SearchWindow : Window
                 rows.Add(Header(FileIndex.IsScanning ? "Dosyalar dizinleniyor… (ilk tarama birkaç dakika sürer)" : "Dosya dizini hazırlanıyor…"));
             }
 
-            // Web araması güncellemesi
+            // Web arama öğesini ayara göre en üstte veya en altta tut
             if (AppSettings.Current.EnableWebSearch)
             {
-                bool hasApps = _items.Any(i => i.App != null);
-                bool hasFiles = hits.Count > 0;
+                var existingWeb = _items.FirstOrDefault(i => i.IsWebSearch);
+                if (existingWeb != null)
+                {
+                    _items.Remove(existingWeb);
+                }
 
-                if (!hasApps && !hasFiles)
+                bool hasAnyOtherResults = _items.Any(i => !i.IsHeader && !i.IsWebSearch) || hits.Count > 0;
+                var webItem = WebSearchItem(text, isFallback: !hasAnyOtherResults);
+
+                if (AppSettings.Current.AlwaysShowWebSearchAtTop)
                 {
-                    // Ne uygulama ne de dosya bulundu:
-                    if (!_items.Any(i => i.IsWebSearch))
-                    {
-                        rows.Add(WebSearchItem(text, isFallback: true));
-                    }
+                    _items.Insert(0, webItem);
                 }
-                else if (AppSettings.Current.AlwaysShowWebSearch)
+                else
                 {
-                    // "Her zaman göster" açıksa ve henüz eklenmemişse en alta ekle
-                    if (!_items.Any(i => i.IsWebSearch))
-                    {
-                        rows.Add(WebSearchItem(text, isFallback: false));
-                    }
-                }
-                else if (hasFiles)
-                {
-                    // Dosya bulundu ve AlwaysShowWebSearch kapalıysa:
-                    // Önceden eklenmiş geçici fallback web aramasını listeden temizle
-                    var existingWeb = _items.FirstOrDefault(i => i.IsWebSearch);
-                    if (existingWeb != null)
-                    {
-                        _items.Remove(existingWeb);
-                    }
+                    rows.Add(webItem);
                 }
             }
 
@@ -446,9 +429,16 @@ public partial class SearchWindow : Window
     {
         var engine = AppSettings.Current.SearchEngine;
         var url = AppSettings.GetSearchUrl(engine, query);
+        var searchVerb = (engine ?? "").ToLowerInvariant() switch
+        {
+            "bing" => $"{engine}'de Ara",
+            "yandex" => $"{engine}'te Ara",
+            _ => $"{engine}'da Ara"
+        };
+
         return new ResultItem
         {
-            Title = $"{engine}'da Ara: \"{query}\"",
+            Title = $"{searchVerb}: \"{query}\"",
             Subtitle = isFallback ? "Sonuç bulunamadı · Web'de aramak için Enter" : $"{engine} ile Web'de ara",
             Glyph = "",
             GlyphBackground = Solid(0x00, 0x7A, 0xFF),
