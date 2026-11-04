@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.1 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.2 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -96,8 +96,9 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 |---|---|
 | **Theme** | System (follows Windows) · Light · Dark |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
-| **Live glass** | On / Off. Keeps what is behind the glass up to date; turn it off while screen sharing. |
+| **Live glass** | On / Off. Keeps what is behind the glass up to date. While it is on, Spotlight is hidden from screenshots and screen sharing. |
 | **Web search** | Google · Bing · DuckDuckGo |
+| **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space |
 | **Start with Windows** | On / Off |
 
 ### MP3 / MP4 converter

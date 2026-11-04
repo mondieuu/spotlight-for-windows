@@ -110,8 +110,8 @@ public sealed class SettingsWindow : Window
                 i => { s.Theme = (ThemeMode)i; s.Save(); })),
             Row("", Color.FromRgb(0x32, 0xAD, 0xE6), L.T("Live glass", "Canlı cam"),
                 Switch(s.LiveGlass, on => { s.LiveGlass = on; s.Save(); }))));
-        _content.Children.Add(Footnote(L.T("Live glass keeps what is behind Spotlight up to date. Turn it off while screen sharing.",
-                                           "Canlı cam, Spotlight'ın arkasındakini güncel tutar. Ekran paylaşırken kapatabilirsin.")));
+        _content.Children.Add(Footnote(L.T("Live glass keeps what is behind Spotlight up to date. While it is on, Spotlight is hidden from screenshots and screen sharing; turn it off to capture it.",
+                                           "Canlı cam, Spotlight'ın arkasındakini güncel tutar. Açıkken Spotlight ekran görüntülerinde ve ekran paylaşımında görünmez; görüntü almak için kapat.")));
 
         // Language and search
         _content.Children.Add(Group(
@@ -145,7 +145,9 @@ public sealed class SettingsWindow : Window
         // macOS-style window buttons: red closes, the others are just for looks.
         var lights = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         var close = Dot(Color.FromRgb(0xFF, 0x5F, 0x57), true);
-        close.MouseLeftButtonUp += (_, _) => Close();
+        // Swallow the press so the card does not start a window drag (which used to eat the click).
+        close.MouseLeftButtonDown += (_, e) => e.Handled = true;
+        close.MouseLeftButtonUp += (_, e) => { e.Handled = true; Close(); };
         close.ToolTip = L.T("Close", "Kapat");
         lights.Children.Add(close);
         lights.Children.Add(Dot(Color.FromRgb(0xFE, 0xBC, 0x2E), false));

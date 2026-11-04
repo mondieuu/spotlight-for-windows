@@ -53,7 +53,7 @@ public partial class SearchWindow : Window
             if (!IsVisible || _closing) return;
             OnQueryChanged(this, null!);
             if (AppSettings.Current.LiveGlass) StartLiveGlass();
-            else _liveGlass?.Cancel();
+            else StopLiveGlass();
         });
         ApplyAppearance();
     }
@@ -193,7 +193,8 @@ public partial class SearchWindow : Window
             (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
             (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
         _captureScale = scale;
-        _backdrop = CaptureBehind(new WindowInteropHelper(this).Handle);
+        if (AppSettings.Current.LiveGlass) _excludedForLive = SetExcluded(true);
+        _backdrop = CaptureBehind();
         _height.Snap(ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68);
         UpdateGlass();
         _closing = false;
@@ -221,6 +222,7 @@ public partial class SearchWindow : Window
             if (!_closing) return;
             _closing = false;
             Hide();
+            StopLiveGlass();
             // Start clean next time; running downloads continue in the background.
             if (!_items.Any(i => i.IsBusy)) Query.Text = "";
         });
@@ -297,52 +299,69 @@ public partial class SearchWindow : Window
             AlignmentY = AlignmentY.Top,
         };
 
-    /// <summary>Sets display affinity from any thread (falls back to the UI thread if Windows requires it).</summary>
-    private void Affinity(IntPtr hwnd, uint value)
+    /// <summary>
+    /// Hides (or shows) the window from screen capture and checks that Windows really applied it.
+    /// Runs on the UI thread. The window always stays fully visible on the monitor itself.
+    /// </summary>
+    private bool SetExcluded(bool exclude)
     {
-        if (!Native.SetWindowDisplayAffinity(hwnd, value))
-            Dispatcher.Invoke(() => Native.SetWindowDisplayAffinity(hwnd, value));
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return false;
+        Native.SetWindowDisplayAffinity(hwnd, exclude ? Native.WDA_EXCLUDEFROMCAPTURE : Native.WDA_NONE);
+        return Native.GetWindowDisplayAffinity(hwnd, out var current) && current == (exclude ? Native.WDA_EXCLUDEFROMCAPTURE : Native.WDA_NONE);
     }
 
     /// <summary>
-    /// Captures only what is behind the glass, never the glass itself: the window is excluded from screen
-    /// capture, two compositor frames pass so the exclusion is surely applied, then the region is copied.
-    /// The window stays fully visible on screen the whole time.
+    /// Captures only what is behind the glass, never the glass itself. With live glass the window is already
+    /// excluded from capture for as long as it is open; otherwise it is excluded just for this one capture.
+    /// If Windows does not confirm the exclusion, nothing is captured: a frame of the glass itself must never
+    /// end up inside the glass (that is what made it stack up and darken/brighten).
     /// </summary>
-    private Backdrop? CaptureBehind(IntPtr hwnd)
+    private Backdrop? CaptureBehind()
     {
         var rect = _captureRect;
+        bool temporary = !_excludedForLive;
+        if (temporary && !SetExcluded(true)) return null;
         try
         {
-            Affinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
             Native.DwmFlush();
             Native.DwmFlush();
             return Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, _captureScale);
         }
         finally
         {
-            Affinity(hwnd, Native.WDA_NONE);
+            if (temporary) SetExcluded(false);
         }
     }
 
+    private bool _excludedForLive;
+
     /// <summary>
-    /// Keeps the glass live (twice a second) so it always shows what is really behind it: videos,
-    /// scrolling pages, windows that move. The refracted image is built off the UI thread so typing never stutters.
+    /// Live glass: while Spotlight is open it stays excluded from screen capture (so screenshots and screen
+    /// sharing do not show it), which lets the glass refresh three times a second with no chance of capturing
+    /// itself. The refracted image is built off the UI thread so typing never stutters.
     /// </summary>
     private void StartLiveGlass()
     {
         _liveGlass?.Cancel();
-        // Off in Settings (e.g. while screen sharing): the glass keeps the snapshot taken when it opened.
-        if (!AppSettings.Current.LiveGlass) return;
+        // Off in Settings: the glass keeps the snapshot taken when it opened, and Spotlight shows up in screenshots.
+        if (!AppSettings.Current.LiveGlass || !IsVisible)
+        {
+            StopLiveGlass();
+            return;
+        }
+        _excludedForLive = SetExcluded(true);
+        if (!_excludedForLive) return; // Windows refused: stay with the safe static glass.
         var cts = _liveGlass = new CancellationTokenSource();
-        var hwnd = new WindowInteropHelper(this).Handle;
+        var rect = _captureRect;
+        var scale = _captureScale;
         Task.Run(async () =>
         {
             while (!cts.IsCancellationRequested)
             {
-                try { await Task.Delay(500, cts.Token); } catch (OperationCanceledException) { return; }
+                try { await Task.Delay(330, cts.Token); } catch (OperationCanceledException) { return; }
                 if (_closing) continue;
-                var fresh = CaptureBehind(hwnd);
+                var fresh = Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, scale);
                 if (fresh == null || cts.IsCancellationRequested) continue;
                 var image = fresh.Render(GlassWidth, _glassHeight, GlassRadius);
                 await Dispatcher.InvokeAsync(() =>
@@ -353,6 +372,16 @@ public partial class SearchWindow : Window
                 });
             }
         });
+    }
+
+    private void StopLiveGlass()
+    {
+        _liveGlass?.Cancel();
+        if (_excludedForLive)
+        {
+            _excludedForLive = false;
+            SetExcluded(false);
+        }
     }
 
     // ---- Appearance (Light / Dark / follow Windows) and language

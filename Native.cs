@@ -24,11 +24,14 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    // ---- Live glass: briefly hide our own window from screen capture so we can see what is behind it.
+    // ---- Live glass: hide our own window from screen capture so we can see what is behind it.
     public const uint WDA_NONE = 0x0, WDA_EXCLUDEFROMCAPTURE = 0x11;
 
     [DllImport("user32.dll")]
     public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint affinity);
 
     /// <summary>Waits until the desktop compositor has presented the next frame.</summary>
     [DllImport("dwmapi.dll")]
@@ -53,7 +56,7 @@ internal static class Native
         public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant;
     }
 
-    private const int HALFTONE = 4;
+    private const int COLORONCOLOR = 3;
     private const uint SRCCOPY = 0x00CC0020;
 
     /// <summary>Copies a screen rectangle straight into a smaller 32-bit pixel buffer (top-down BGRA).</summary>
@@ -67,7 +70,7 @@ internal static class Native
             dib = CreateDIBSection(screen, ref bmi, 0, out var bits, IntPtr.Zero, 0);
             if (dib == IntPtr.Zero) return null;
             old = SelectObject(mem, dib);
-            SetStretchBltMode(mem, HALFTONE);
+            SetStretchBltMode(mem, COLORONCOLOR); // fast; the light blur afterwards smooths it
             SetBrushOrgEx(mem, 0, 0, IntPtr.Zero);
             if (!StretchBlt(mem, 0, 0, dw, dh, screen, x, y, width, height, SRCCOPY)) return null;
             var pixels = new int[dw * dh];
