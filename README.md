@@ -123,7 +123,7 @@ Spotlight tamamen bilgisayarında çalışır. Arama geçmişi, dosya adları ya
 
 ## Kaynaktan derleme
 
-Gerekenler: Windows 10/11 ve [.NET 10 SDK](https://dotnet.microsoft.com/download).
+Gerekenler: Windows 10/11 (64 bit) ve [.NET 10 SDK](https://dotnet.microsoft.com/download).
 
 ```bash
 git clone https://github.com/mondieuu/spotlight-for-windows.git
