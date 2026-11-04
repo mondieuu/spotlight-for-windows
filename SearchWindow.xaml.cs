@@ -46,14 +46,12 @@ public partial class SearchWindow : Window
         _height = new Spring(68, h => Panel.Height = Math.Max(68, h));
         // Like macOS: clicking anywhere else closes it.
         Deactivated += (_, _) => HideSpotlight();
-        // Theme, language and live-glass changes from the Settings window apply live.
+        // Theme and language changes from the Settings window apply live.
         AppSettings.Changed += () => Dispatcher.Invoke(() =>
         {
             ApplyAppearance();
             if (!IsVisible || _closing) return;
             OnQueryChanged(this, null!);
-            if (AppSettings.Current.LiveGlass) StartLiveGlass();
-            else StopLiveGlass();
         });
         ApplyAppearance();
     }
@@ -176,7 +174,6 @@ public partial class SearchWindow : Window
             _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
             Activate();
             Query.Focus();
-            StartLiveGlass();
             return;
         }
         ApplyAppearance();
@@ -193,7 +190,6 @@ public partial class SearchWindow : Window
             (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
             (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
         _captureScale = scale;
-        if (AppSettings.Current.LiveGlass) _excludedForLive = SetExcluded(true);
         _backdrop = CaptureBehind();
         _height.Snap(ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68);
         UpdateGlass();
@@ -206,7 +202,6 @@ public partial class SearchWindow : Window
         Query.SelectAll();
         // Accepts typing from the first frame; the animation never makes you wait.
         _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
-        StartLiveGlass();
         _ = AppIndex.RefreshAsync();
     }
 
@@ -214,7 +209,6 @@ public partial class SearchWindow : Window
     {
         if (!IsVisible || _closing) return;
         _fileSearch?.Cancel();
-        _liveGlass?.Cancel();
         _closing = true;
         // Leaves along the path it came in on (same scale axis), a little faster.
         _open.To(0, ReduceMotion ? 0.15 : 0.22, 1.0, settled: () =>
@@ -222,7 +216,6 @@ public partial class SearchWindow : Window
             if (!_closing) return;
             _closing = false;
             Hide();
-            StopLiveGlass();
             // Start clean next time; running downloads continue in the background.
             if (!_items.Any(i => i.IsBusy)) Query.Text = "";
         });
@@ -274,7 +267,6 @@ public partial class SearchWindow : Window
 
     private System.Drawing.Rectangle _captureRect;
     private double _captureScale = 1;
-    private CancellationTokenSource? _liveGlass;
     private volatile float _glassHeight = 68;
 
     private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e)
@@ -312,16 +304,15 @@ public partial class SearchWindow : Window
     }
 
     /// <summary>
-    /// Captures only what is behind the glass, never the glass itself. With live glass the window is already
-    /// excluded from capture for as long as it is open; otherwise it is excluded just for this one capture.
-    /// If Windows does not confirm the exclusion, nothing is captured: a frame of the glass itself must never
-    /// end up inside the glass (that is what made it stack up and darken/brighten).
+    /// Captures only what is behind the glass, never the glass itself: the window is excluded from screen
+    /// capture just for this one snapshot, taken as it opens. If Windows does not confirm the exclusion,
+    /// nothing is captured, so a frame of the glass can never end up inside the glass (that is what made it
+    /// stack up and darken or brighten).
     /// </summary>
     private Backdrop? CaptureBehind()
     {
         var rect = _captureRect;
-        bool temporary = !_excludedForLive;
-        if (temporary && !SetExcluded(true)) return null;
+        if (!SetExcluded(true)) return null;
         try
         {
             Native.DwmFlush();
@@ -330,56 +321,6 @@ public partial class SearchWindow : Window
         }
         finally
         {
-            if (temporary) SetExcluded(false);
-        }
-    }
-
-    private bool _excludedForLive;
-
-    /// <summary>
-    /// Live glass: while Spotlight is open it stays excluded from screen capture (so screenshots and screen
-    /// sharing do not show it), which lets the glass refresh three times a second with no chance of capturing
-    /// itself. The refracted image is built off the UI thread so typing never stutters.
-    /// </summary>
-    private void StartLiveGlass()
-    {
-        _liveGlass?.Cancel();
-        // Off in Settings: the glass keeps the snapshot taken when it opened, and Spotlight shows up in screenshots.
-        if (!AppSettings.Current.LiveGlass || !IsVisible)
-        {
-            StopLiveGlass();
-            return;
-        }
-        _excludedForLive = SetExcluded(true);
-        if (!_excludedForLive) return; // Windows refused: stay with the safe static glass.
-        var cts = _liveGlass = new CancellationTokenSource();
-        var rect = _captureRect;
-        var scale = _captureScale;
-        Task.Run(async () =>
-        {
-            while (!cts.IsCancellationRequested)
-            {
-                try { await Task.Delay(330, cts.Token); } catch (OperationCanceledException) { return; }
-                if (_closing) continue;
-                var fresh = Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, scale);
-                if (fresh == null || cts.IsCancellationRequested) continue;
-                var image = fresh.Render(GlassWidth, _glassHeight, GlassRadius);
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    if (cts.IsCancellationRequested) return;
-                    _backdrop = fresh;
-                    SetGlass(image);
-                });
-            }
-        });
-    }
-
-    private void StopLiveGlass()
-    {
-        _liveGlass?.Cancel();
-        if (_excludedForLive)
-        {
-            _excludedForLive = false;
             SetExcluded(false);
         }
     }

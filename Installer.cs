@@ -21,7 +21,7 @@ namespace Odak;
 public static class Installer
 {
     public const string AppName = "Spotlight";
-    public const string Version = "1.2.0";
+    public const string Version = "1.3.0";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Spotlight";
 

@@ -107,11 +107,9 @@ public sealed class SettingsWindow : Window
             Row("", Color.FromRgb(0xAF, 0x52, 0xDE), L.T("Appearance", "Görünüm"), Segmented(
                 new[] { L.T("System", "Sistem"), L.T("Light", "Açık"), L.T("Dark", "Koyu") },
                 (int)s.Theme,
-                i => { s.Theme = (ThemeMode)i; s.Save(); })),
-            Row("", Color.FromRgb(0x32, 0xAD, 0xE6), L.T("Live glass", "Canlı cam"),
-                Switch(s.LiveGlass, on => { s.LiveGlass = on; s.Save(); }))));
-        _content.Children.Add(Footnote(L.T("Live glass keeps what is behind Spotlight up to date. While it is on, Spotlight is hidden from screenshots and screen sharing; turn it off to capture it.",
-                                           "Canlı cam, Spotlight'ın arkasındakini güncel tutar. Açıkken Spotlight ekran görüntülerinde ve ekran paylaşımında görünmez; görüntü almak için kapat.")));
+                i => { s.Theme = (ThemeMode)i; s.Save(); }))));
+        _content.Children.Add(Footnote(L.T("System follows the Windows light or dark app mode.",
+                                           "Sistem, Windows'un açık/koyu uygulama moduna uyar.")));
 
         // Language and search
         _content.Children.Add(Group(

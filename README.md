@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.2 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.3 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -27,7 +27,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | 📂 **Paste a path** | Paste `C:\Windows\notepad.exe` or a folder path to open it in File Explorer. |
 | 🎵 **MP3 / MP4 converter** | Paste a YouTube or Instagram link and save it as an MP4 video or an MP3 audio file with one key. |
 | 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
-| 🪟 **Clear Liquid Glass** | Crystal-clear glass that shows what is really behind it, kept live while open, with lens refraction and light dispersion at the edges. |
+| 🪟 **Liquid Glass** | Crystal-clear glass that shows what is behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
 | 🧹 **Clean uninstall** | Uninstalling removes the program, index, settings, shortcuts and registry entries. Nothing is left behind. |
 
@@ -96,7 +96,6 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 |---|---|
 | **Theme** | System (follows Windows) · Light · Dark |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
-| **Live glass** | On / Off. Keeps what is behind the glass up to date. While it is on, Spotlight is hidden from screenshots and screen sharing. |
 | **Web search** | Google · Bing · DuckDuckGo |
 | **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space |
 | **Start with Windows** | On / Off |
@@ -113,7 +112,7 @@ The first time you use it, the conversion tools ([yt-dlp](https://github.com/yt-
 ### Tray menu
 **Right-click** the Spotlight icon on the right side of the taskbar:
 - **Open:** opens Spotlight (double-clicking the icon does the same).
-- **Settings…:** theme, language, web search engine, start with Windows.
+- **Settings…:** theme, language, web search engine, keyboard shortcut, start with Windows.
 - **Downloads folder:** shows your downloaded MP3/MP4 files.
 - **Start with Windows:** starts Spotlight in the background when you sign in.
 - **Uninstall Spotlight…:** opens the uninstaller.
@@ -200,7 +199,6 @@ This is an independent project, **not affiliated with or endorsed by Apple Inc.*
 - **Disk yolu yapıştır,** Dosya Gezgini'nde açılsın. **YouTube veya Instagram bağlantısı yapıştır,** MP4 ya da MP3 olarak indir.
 - **Ayarlar:** tepsi menüsünden **Ayarlar…** ile ya da Spotlight'a `ayarlar`/`tema` yazarak açılır.
   - Tema: Sistem / Açık / Koyu
-  - Canlı cam: camın arkasındakini güncel tutar (ekran paylaşırken kapatılabilir)
   - Arayüz dili: English / Türkçe
   - Web arama motoru
   - Windows ile başlatma

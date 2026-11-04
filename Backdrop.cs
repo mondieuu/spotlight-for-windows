@@ -65,8 +65,10 @@ internal sealed class Backdrop
         int w = Math.Clamp((int)Math.Round(widthDip * k), 1, _w);
         int h = Math.Clamp((int)Math.Round(heightDip * k), 1, _h);
         double r = radiusDip * k;
-        double band = 30 * k;       // width of the refracting rim
-        double shift = 20 * k;      // strongest bend, at the very edge
+        double band = 26 * k;       // width of the curved bezel
+        double shift = 22 * k;      // strongest bend, at the very edge
+        // Light comes from the top left, like Apple's Liquid Glass.
+        const double lx = -0.5, ly = -0.866;
         double cx = w / 2.0, cy = h / 2.0, hx = w / 2.0 - r, hy = h / 2.0 - r;
 
         var output = new int[w * h];
@@ -104,13 +106,23 @@ internal sealed class Backdrop
                     continue;
                 }
 
-                // Lens rim: background is pulled inward, red bends a little more than blue (dispersion).
+                // Curved bezel, like a convex lens: the surface slope (and so the bend) stays near zero inside
+                // and rises steeply toward the rim. Red bends a little more than blue (dispersion).
                 double t = 1 - Math.Max(0, inside) / band;
-                double amount = shift * t * t * t;
-                double lift = 1 + 0.05 * t * t; // the thicker edge catches a little more light
-                int cr = Channel(px - nx * amount * 1.12, py - ny * amount * 1.12, 16, lift);
-                int cg = Channel(px - nx * amount, py - ny * amount, 8, lift);
-                int cb = Channel(px - nx * amount * 0.88, py - ny * amount * 0.88, 0, lift);
+                double slope = t / Math.Sqrt(1 - 0.96 * t * t);
+                double amount = shift * Math.Min(slope, 3.5) / 3.5;
+                int cr = Channel(px - nx * amount * 1.1, py - ny * amount * 1.1, 16, 1);
+                int cg = Channel(px - nx * amount, py - ny * amount, 8, 1);
+                int cb = Channel(px - nx * amount * 0.9, py - ny * amount * 0.9, 0, 1);
+
+                // Specular rim: a thin bright line where the bezel faces the light (top left), a softer
+                // reflection on the opposite side (bottom right). It follows the rounded corners exactly.
+                double facing = nx * lx + ny * ly;
+                double thin = Math.Pow(t, 10), soft = t * t * t;
+                double spec = thin * (0.42 * Math.Max(facing, 0) + 0.2 * Math.Max(-facing, 0)) + soft * 0.05 * Math.Max(facing, 0);
+                cr += (int)((255 - cr) * spec);
+                cg += (int)((255 - cg) * spec);
+                cb += (int)((255 - cb) * spec);
                 output[py * w + px] = unchecked((int)0xFF000000) | (cr << 16) | (cg << 8) | cb;
             }
         }

@@ -19,8 +19,6 @@ public sealed class AppSettings
     /// <summary>"en" (default) or "tr".</summary>
     public string Language { get; set; } = "en";
     public SearchEngine WebSearch { get; set; } = SearchEngine.Google;
-    /// <summary>Refresh what is behind the glass while Spotlight is open (once a second).</summary>
-    public bool LiveGlass { get; set; } = true;
     /// <summary>Global shortcut: modifier flags (Alt = 1, Ctrl = 2, Shift = 4, Win = 8) and virtual-key code.</summary>
     public uint HotkeyModifiers { get; set; } = 0x1;
     public uint HotkeyKey { get; set; } = 0x20;
