@@ -427,19 +427,13 @@ public partial class SearchWindow : Window
 
     private static ResultItem WebSearchItem(string query, bool isFallback)
     {
-        var engine = AppSettings.Current.SearchEngine;
+        var engine = "Google";
         var url = AppSettings.GetSearchUrl(engine, query);
-        var searchVerb = (engine ?? "").ToLowerInvariant() switch
-        {
-            "bing" => $"{engine}'de Ara",
-            "yandex" => $"{engine}'te Ara",
-            _ => $"{engine}'da Ara"
-        };
 
         return new ResultItem
         {
-            Title = $"{searchVerb}: \"{query}\"",
-            Subtitle = isFallback ? "Sonuç bulunamadı · Web'de aramak için Enter" : $"{engine} ile Web'de ara",
+            Title = $"Google'da Ara: \"{query}\"",
+            Subtitle = isFallback ? "Sonuç bulunamadı · Google'da aramak için Enter" : "Google ile Web'de ara",
             Glyph = "",
             GlyphBackground = Solid(0x00, 0x7A, 0xFF),
             Hint = "Enter · Tarayıcıda aç",

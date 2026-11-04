@@ -44,7 +44,11 @@ public sealed class AppSettings
             {
                 var json = File.ReadAllText(SettingsFile);
                 var loaded = JsonSerializer.Deserialize<AppSettings>(json);
-                if (loaded != null) return loaded;
+                if (loaded != null)
+                {
+                    loaded.SearchEngine = "Google";
+                    return loaded;
+                }
             }
         }
         catch { }

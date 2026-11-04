@@ -606,6 +606,7 @@ public sealed class SettingsWindow : Window
         s.EnableWebSearch = _enableWebSearch;
         s.AlwaysShowWebSearchAtTop = _webSearchAtTop;
         s.AlwaysShowWebSearch = true;
+        s.SearchEngine = "Google";
         s.Hotkey = _currentHotkey;
         s.Save();
 
