@@ -392,9 +392,18 @@ public partial class SearchWindow : Window
         _webRow = WebItem(text);
         list.Add(_webRow);
 
+        // Priority: apps → web search → files. Plain words ("youtube") stay apps + web only; files are
+        // listed (below the web row) when the query looks like a file name, i.e. it has an extension: "chrome.exe".
         // SPOTLIGHT_DEMO=1: keep personal file paths out of promotional screenshots.
-        searchFiles = text.Length >= 2 && Environment.GetEnvironmentVariable("SPOTLIGHT_DEMO") != "1";
+        searchFiles = text.Length >= 2 && LooksLikeFileName(text) && Environment.GetEnvironmentVariable("SPOTLIGHT_DEMO") != "1";
         return list;
+    }
+
+    /// <summary>"report.xlsx", "chrome.exe", ".pdf" → true; "youtube", "device manager" → false.</summary>
+    private static bool LooksLikeFileName(string text)
+    {
+        int dot = text.LastIndexOf('.');
+        return dot >= 0 && dot < text.Length - 1 && !text.Contains(' ', StringComparison.Ordinal) || text.Contains('\\');
     }
 
     private ResultItem WebItem(string text)
@@ -434,13 +443,9 @@ public partial class SearchWindow : Window
             }
             if (rows.Count == 0) return;
 
-            // Files go above the web search row, which always stays last.
-            int at = _webRow != null && _items.Contains(_webRow) ? _items.IndexOf(_webRow) : _items.Count;
-            foreach (var row in rows) _items.Insert(at++, row);
-
-            // If the web row was selected only because nothing else matched yet, move to the first file.
-            bool webWasTopHit = Results.SelectedItem == _webRow && hits.Count > 0;
-            RefreshList(selectFirst: webWasTopHit);
+            // Files come last, below the web search row, and never take the selection away from it.
+            foreach (var row in rows) _items.Add(row);
+            RefreshList(selectFirst: false);
         }
         catch (OperationCanceledException) { }
         catch { }

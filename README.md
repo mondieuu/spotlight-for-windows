@@ -19,8 +19,8 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | | |
 |---|---|
 | 🔎 **App search** | Every app in the Start menu, shown with its real icon. The apps you open most rise to the top. |
-| 📁 **Search every file** | All fixed drives are indexed (the first scan takes ~20 s), and every result shows **where the file lives**. |
-| 🌐 **Web fallback** | Nothing on your PC matches? Press Enter to search Google, Bing or DuckDuckGo in your default browser. |
+| 📁 **Search every file** | All fixed drives are indexed (the first scan takes ~20 s). Type a file name with its extension (`report.xlsx`, `chrome.exe`) and every result shows **where the file lives**. |
+| 🌐 **Web search** | Results come in this order: **apps → web search → files**. If no app matches (e.g. `youtube`), Enter searches Google, Bing or DuckDuckGo in your default browser. |
 | 🌍 **English & Turkish** | `device manager` and `aygıt yöneticisi` find the same tool. ~170 Windows tools, settings pages and folders work in both languages. |
 | ✍️ **Typo tolerant** | `devise manger` → Device Manager. Turkish characters are optional: `sozlesme` = `sözleşme`. |
 | ⚙️ **Windows settings** | Wi-Fi, Bluetooth, Display, Windows Update, Dark mode… each one opens the right settings page directly. |
@@ -83,11 +83,11 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | `device manager`, `aygıt yöneticisi`, `regedit` | Windows tools, in either language |
 | `wifi`, `bluetooth`, `dark mode`, `update` | The matching Windows Settings page |
 | `driver`, `wallpaper`, `password` | Tools and settings found by keyword |
-| `chrome.exe`, `invoice`, `report.xlsx` | Files and folders, with their location under the name |
+| `chrome.exe`, `invoice.pdf`, `report.xlsx` | Files and folders (type the extension), with their location under the name |
 | `C:\Users`, `%APPDATA%`, `~\Downloads` | Opens that folder or file in File Explorer |
 | `https://youtube.com/…`, `https://instagram.com/…` | **Download as MP4**, **Download as MP3**, **Open in browser** |
 | `spotlight settings`, `theme`, `language` | Opens Spotlight's own Settings |
-| anything with no match | **Search the web for "…"** in your default browser |
+| `youtube`, `weather istanbul` | **Search the web for "…"** right after any matching apps |
 
 ### Settings
 Open the Settings window from the tray menu (**Settings…**) or by typing `settings` in Spotlight. Every change applies immediately:
@@ -194,7 +194,7 @@ This is an independent project, **not affiliated with or endorsed by Apple Inc.*
 **Spotlight for Windows**, macOS'taki Spotlight deneyimini Windows'a getirir. **Alt + Space**'e bas ve yazmaya başla.
 
 - **Uygulamalar, dosyalar ve Windows ayarları tek yerde.** Bilgisayardaki tüm dosyalar dizinlenir; her sonucun altında dosyanın konumu yazar.
-- **Hiçbir şey bulunamazsa** Enter'a bas: aradığın şey varsayılan tarayıcında Google, Bing ya da DuckDuckGo ile aranır.
+- **Sonuç sırası: uygulamalar → web araması → dosyalar.** Eşleşen uygulama yoksa (ör. `youtube`) Enter varsayılan tarayıcında arar. Dosyalar uzantıyla yazınca listelenir (`rapor.xlsx`).
 - **İngilizce ve Türkçe:** `device manager` da yazsan `aygıt yöneticisi` de aynı aracı bulursun. Yaklaşık 170 Windows aracı ve ayarı iki dilde bulunur. Yazım hataları tolere edilir.
 - **Disk yolu yapıştır,** Dosya Gezgini'nde açılsın. **YouTube veya Instagram bağlantısı yapıştır,** MP4 ya da MP3 olarak indir.
 - **Ayarlar:** tepsi menüsünden **Ayarlar…** ile ya da Spotlight'a `ayarlar`/`tema` yazarak açılır.
