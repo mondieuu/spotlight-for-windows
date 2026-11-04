@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.3 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.4 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -29,6 +29,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
 | 🪟 **Liquid Glass** | Crystal-clear glass that shows what is behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
+| 🔄 **Software Update** | Spotlight checks GitHub for new versions and updates itself in place with one click. No reinstalling, and your settings stay. |
 | 🧹 **Clean uninstall** | Uninstalling removes the program, index, settings, shortcuts and registry entries. Nothing is left behind. |
 
 ## Screenshots
@@ -56,7 +57,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 
 - **No administrator rights** are needed. Spotlight installs for your user account only (`%LOCALAPPDATA%\Programs\Spotlight`).
 - **No .NET install** is needed; everything is inside the single file.
-- **To update**, run the setup file of the new version and click **Update**.
+- **To update**, open **Settings › Software Update** and click **Update Now**, or click the update notification. Spotlight replaces itself in place and restarts; your settings stay. (From v1.3 or older, run the new setup once and click **Update**.)
 
 > **"Windows protected your PC" warning:** the setup file is not digitally signed, so SmartScreen may show this. Click **More info → Run anyway** to continue.
 
@@ -99,6 +100,8 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 | **Web search** | Google · Bing · DuckDuckGo |
 | **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space |
 | **Start with Windows** | On / Off |
+| **Software Update** | Shows whether you are up to date; **Check Now** / **Update Now** |
+| **Check automatically** | On / Off. Checks GitHub shortly after start and every 6 hours |
 
 ### MP3 / MP4 converter
 1. Paste a YouTube or Instagram link into Spotlight.
@@ -149,6 +152,7 @@ Spotlight runs entirely on your PC. Searches, file names and usage data are **ne
 - A web search you choose sends your query to the search engine you picked, in your browser.
 - The first use of the converter downloads its tools.
 - A download you start fetches that video or audio.
+- The update check reads the latest release info from GitHub (no personal data is sent).
 
 ## Build from source
 
@@ -178,6 +182,7 @@ Rename `publish\Spotlight.exe` to `SpotlightSetup.exe`: an exe with "Setup" in i
 | `FileIndex.cs` | Whole-disk file index, live watching, parallel search |
 | `Converter.cs` | MP3/MP4 via yt-dlp + FFmpeg |
 | `Installer.cs` · `SetupWindow.cs` | Install and trace-free uninstall |
+| `Updater.cs` | Software Update: GitHub release check, download, silent in-place update |
 
 ## License and notice
 
@@ -212,6 +217,7 @@ This is an independent project, **not affiliated with or endorsed by Apple Inc.*
   | `Esc` | Kapatır |
 
 - **Kurulum:** [Releases](https://github.com/mondieuu/spotlight-for-windows/releases/latest) sayfasından `SpotlightSetup.exe`'yi indir. Kurulum penceresinin sağ üstündeki **TR** düğmesiyle Türkçeye geçebilirsin. Yönetici izni gerekmez. Dosya imzasız olduğu için SmartScreen uyarı verirse **Ek bilgi → Yine de çalıştır**'a bas.
+- **Güncelleme:** Ayarlar › Software Update › **Update Now** ya da güncelleme bildirimine tıkla. Spotlight kendini yerinde günceller, kaldırıp kurmaya gerek yok; ayarların korunur.
 - **Kaldırma:** **Ayarlar › Uygulamalar › Yüklü uygulamalar › Spotlight** ya da tepsi menüsü. Program, dizin, ayarlar, araçlar, kısayollar ve kayıt defteri girdileri tamamen silinir. İndirdiğin dosyalar sen işaretlemedikçe kalır.
 - **Gizlilik:** Her şey bilgisayarında çalışır, telemetri yoktur.
 
