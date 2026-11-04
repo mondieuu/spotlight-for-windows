@@ -84,6 +84,7 @@ public partial class App : Application
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add($"Aç ({_window.HotkeyText})", null, (_, _) => _window.ShowSpotlight());
+        menu.Items.Add("Ayarlar…", null, (_, _) => SettingsWindow.Open());
         menu.Items.Add("İndirilenler klasörü", null, (_, _) =>
         {
             Directory.CreateDirectory(Converter.OutputDir);
@@ -110,13 +111,13 @@ public partial class App : Application
 
     // ---- "Windows ile başlat" (yalnızca bu kullanıcı için, HKCU\...\Run)
 
-    private static bool IsStartupEnabled()
+    public static bool IsStartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
         return key?.GetValue("Spotlight") != null;
     }
 
-    private static void SetStartup(bool enabled)
+    public static void SetStartup(bool enabled)
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
         if (key == null) return;

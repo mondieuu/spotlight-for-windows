@@ -28,6 +28,9 @@ public static class Catalog
 
     public static readonly Item[] Items =
     {
+        // ---- Spotlight Özellikleri
+        T("Spotlight Ayarları", "Spotlight Settings", "spotlight:settings", "ayarlar settings tercihler preferences yapılandırma config web arama"),
+
         // ---- Windows araçları
         T("Aygıt Yöneticisi", "Device Manager", "devmgmt.msc", "donanım sürücü driver hardware aygit"),
         T("Disk Yönetimi", "Disk Management", "diskmgmt.msc", "bölüm partition biçimlendir format sürücü harfi"),
@@ -198,6 +201,7 @@ public static class Catalog
     public static bool IsAvailable(Item item)
     {
         if (item.Command == null) return false;
+        if (item.Command == "spotlight:settings") return true;
         var cmd = item.Command;
         if (cmd.Contains(':')) return true; // ms-settings:, shell:, windowsdefender:
         return ResolvePath(cmd) != null;

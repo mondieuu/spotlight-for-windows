@@ -56,6 +56,9 @@ public sealed class ResultItem : INotifyPropertyChanged
     public string Hint { get; init; } = "";
     public bool IsBusy { get; set; }
 
+    /// <summary>Web araması önerisi mi.</summary>
+    public bool IsWebSearch { get; init; }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
