@@ -9,10 +9,10 @@ using PixelFormat = System.Drawing.Imaging.PixelFormat;
 namespace Odak;
 
 /// <summary>
-/// Kendi Liquid Glass zeminimiz. Pencere açılmadan hemen önce arkasındaki ekran bölgesi yakalanır,
-/// bulanıklaştırılır ve canlılaştırılır (doygunluk artırılır). Ardından camın kenarlarında Apple'ın
-/// Liquid Glass'ındaki gibi mercek kırılması uygulanır: kenara yaklaştıkça arka plan içe doğru bükülür.
-/// Windows'un "Saydamlık efektleri" kapalı olsa bile çalışır.
+/// Our own Liquid Glass backdrop. Just before the window opens, the screen region behind it is captured,
+/// blurred and made more vibrant (saturation boosted). Then lens refraction like Apple's Liquid Glass
+/// is applied at the edges of the glass: the closer to the edge, the more the background bends inward.
+/// Works even when Windows "Transparency effects" are turned off.
 /// </summary>
 internal sealed class Backdrop
 {
@@ -30,7 +30,7 @@ internal sealed class Backdrop
         _scale = scale;
     }
 
-    /// <summary>Ekrandaki piksel dikdörtgenini yakalar; bulanık ve canlı temel görüntüyü hazırlar.</summary>
+    /// <summary>Captures a pixel rectangle of the screen and prepares the blurred, vibrant base image.</summary>
     public static Backdrop? Capture(int x, int y, int width, int height, double dpiScale)
     {
         if (width <= 0 || height <= 0) return null;
@@ -54,7 +54,7 @@ internal sealed class Backdrop
             Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
             small.UnlockBits(data);
 
-            // Üç geçişli kutu bulanıklığı ≈ Gauss (arka plan seçilir ama yazıyı rahatsız etmez).
+            // Three-pass box blur ≈ Gaussian (the background stays recognisable without distracting from the text).
             var tmp = new int[pixels.Length];
             for (int pass = 0; pass < 3; pass++)
             {
@@ -71,17 +71,17 @@ internal sealed class Backdrop
     }
 
     /// <summary>
-    /// Verilen cam boyutu (DIP) için kenar kırılmalı görüntüyü üretir. Görüntü WPF'te tam olarak
-    /// camın boyutunda görünecek DPI ile döner.
+    /// Produces the edge-refracted image for the given glass size (DIP). The image is returned with a DPI
+    /// that makes it appear in WPF at exactly the size of the glass.
     /// </summary>
     public BitmapSource Render(double widthDip, double heightDip, double radiusDip)
     {
-        double k = _scale / Downscale; // DIP → küçük görüntü pikseli
+        double k = _scale / Downscale; // DIP → downscaled image pixel
         int w = Math.Clamp((int)Math.Round(widthDip * k), 1, _w);
         int h = Math.Clamp((int)Math.Round(heightDip * k), 1, _h);
         double r = radiusDip * k;
-        double band = 26 * k;       // kırılmanın etkili olduğu kenar şeridi
-        double shift = 16 * k;      // en dış kenardaki en büyük bükülme
+        double band = 26 * k;       // edge band where refraction applies
+        double shift = 16 * k;      // maximum bend, at the outermost edge
         double cx = w / 2.0, cy = h / 2.0, hx = w / 2.0 - r, hy = h / 2.0 - r;
 
         var output = new int[w * h];
@@ -89,7 +89,7 @@ internal sealed class Backdrop
         {
             for (int px = 0; px < w; px++)
             {
-                // Yuvarlatılmış dikdörtgenin işaretli uzaklık alanı ve dış normal.
+                // Signed distance field of the rounded rectangle, and the outward normal.
                 double dx = px + 0.5 - cx, dy = py + 0.5 - cy;
                 double qx = Math.Abs(dx) - hx, qy = Math.Abs(dy) - hy;
                 double nx, ny, dist;
@@ -111,12 +111,12 @@ internal sealed class Backdrop
                     nx = 0; ny = Math.Sign(dy);
                 }
 
-                double inside = -dist; // kenardan içeri uzaklık
+                double inside = -dist; // distance inward from the edge
                 double sx = px, sy = py;
                 if (inside < band)
                 {
                     double t = 1 - Math.Max(0, inside) / band;
-                    double amount = shift * t * t * t; // kenara doğru hızla artan mercek bükülmesi
+                    double amount = shift * t * t * t; // lens bend that ramps up sharply toward the edge
                     sx -= nx * amount;
                     sy -= ny * amount;
                 }
@@ -130,7 +130,7 @@ internal sealed class Backdrop
         return image;
     }
 
-    /// <summary>Çift doğrusal örnekleme; kenara yakın yerde ışığı hafifçe artırır (camın kalınlaşan kenarı).</summary>
+    /// <summary>Bilinear sampling; slightly brightens near the edge (where the glass gets thicker).</summary>
     private int Sample(double x, double y, double edge)
     {
         x = Math.Clamp(x, 0, _w - 1.001);
@@ -149,7 +149,7 @@ internal sealed class Backdrop
         return unchecked((int)0xFF000000) | (Ch(16) << 16) | (Ch(8) << 8) | Ch(0);
     }
 
-    /// <summary>Apple'ın "vibrancy" etkisi gibi renkleri canlandırır.</summary>
+    /// <summary>Makes colours more vivid, like Apple's "vibrancy" effect.</summary>
     private static void Vibrance(int[] px, double saturation)
     {
         for (int i = 0; i < px.Length; i++)

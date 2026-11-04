@@ -5,10 +5,10 @@ using System.Windows.Media;
 namespace Odak;
 
 /// <summary>
-/// Apple'ın "Designing Fluid Interfaces" yaklaşımıyla yay animasyonu: süre yerine
-/// <b>tepki (response, saniye)</b> ve <b>sönüm oranı (damping)</b> ile tanımlanır.
-/// Her zaman ekrandaki anlık değerden ve hızdan devam eder, bu yüzden yarıda kesilip
-/// yön değiştirilebilir (hedef değişince hareket kopmadan yeni hedefe akar).
+/// Spring animation in the spirit of Apple's "Designing Fluid Interfaces": defined not by duration but by
+/// <b>response (seconds)</b> and <b>damping ratio</b>.
+/// It always continues from the current on-screen value and velocity, so it can be interrupted and
+/// redirected (when the target changes, the motion flows to the new target without a jump).
 /// </summary>
 public sealed class Spring
 {
@@ -33,7 +33,7 @@ public sealed class Spring
         _damping = damping;
     }
 
-    /// <summary>Yeni hedefe yönel (anlık değer ve hız korunur).</summary>
+    /// <summary>Head toward a new target (current value and velocity are kept).</summary>
     public void To(double target, double? response = null, double? damping = null, Action? settled = null)
     {
         Target = target;
@@ -44,7 +44,7 @@ public sealed class Spring
         Hook();
     }
 
-    /// <summary>Animasyonsuz anında yerleş (ör. "Hareketi azalt" açıkken).</summary>
+    /// <summary>Settle instantly without animation (e.g. when "Reduce motion" is on).</summary>
     public void Snap(double value)
     {
         Active.Remove(this);
@@ -67,7 +67,7 @@ public sealed class Spring
     private static void OnFrame(object? sender, EventArgs e)
     {
         var now = ((RenderingEventArgs)e).RenderingTime;
-        // Aynı karede iki kez çağrılabilir; ilk karede ve uzun duraklamalarda adımı sınırla.
+        // May be called twice in the same frame; clamp the step on the first frame and after long pauses.
         double dt = _last == TimeSpan.Zero ? 1 / 60.0 : (now - _last).TotalSeconds;
         if (dt <= 0) return;
         _last = now;
@@ -83,7 +83,7 @@ public sealed class Spring
 
     private void Step(double dt)
     {
-        // Tepki ve sönüm → yay sabiti ve sürtünme (birim kütle).
+        // Response and damping → spring stiffness and friction (unit mass).
         double omega = 2 * Math.PI / _response;
         double k = omega * omega, c = 2 * _damping * omega;
         const int Sub = 4;

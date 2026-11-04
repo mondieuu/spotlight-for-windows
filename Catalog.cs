@@ -4,15 +4,15 @@ using System.IO;
 
 namespace Odak;
 
-/// <summary>Türü: başlatılabilir uygulama, Windows aracı ya da Ayarlar sayfası.</summary>
+/// <summary>Kind: launchable app, Windows tool or Settings page.</summary>
 public enum EntryKind { App, Tool, Setting, Folder }
 
 /// <summary>
-/// İki dilli Windows adları: her kayıt Türkçe adı, İngilizce adı, ek anahtar kelimeleri ve
-/// (yoksa Başlat menüsünde bulunmayan araçlar için) başlatma komutunu tutar.
-/// Başlat menüsünde aynı adla bir uygulama varsa kayıt o uygulamaya takma ad olarak eklenir;
-/// yoksa kendi komutuyla ayrı bir sonuç olur. Böylece "device manager" yazınca Aygıt Yöneticisi,
-/// "hesap makinesi" yazınca Calculator (ya da tersi) bulunur.
+/// Bilingual Windows names: each entry holds the Turkish name, the English name, extra keywords and
+/// (for tools not found in the Start menu) a launch command.
+/// If a Start menu app has the same name, the entry is attached to that app as an alias;
+/// otherwise it becomes a separate result with its own command. So typing "device manager" finds
+/// Aygıt Yöneticisi, and typing "hesap makinesi" finds Calculator (and vice versa).
 /// </summary>
 public static class Catalog
 {
@@ -23,12 +23,12 @@ public static class Catalog
     private static Item T(string tr, string en, string cmd, string keys = "", string? args = null) => new(tr, en, EntryKind.Tool, cmd, args, keys);
     private static Item S(string tr, string en, string uri, string keys = "") => new(tr, en, EntryKind.Setting, uri, null, keys);
     private static Item F(string tr, string en, string shell, string keys = "") => new(tr, en, EntryKind.Folder, shell, null, keys);
-    /// <summary>Yalnızca takma ad: Başlat menüsündeki uygulama iki dilde de bulunsun (komut yok).</summary>
+    /// <summary>Alias only: makes a Start menu app findable in both languages (no command).</summary>
     private static Item A(string tr, string en, string keys = "") => new(tr, en, EntryKind.App, null, null, keys);
 
     public static readonly Item[] Items =
     {
-        // ---- Windows araçları
+        // ---- Windows tools
         T("Aygıt Yöneticisi", "Device Manager", "devmgmt.msc", "donanım sürücü driver hardware aygit"),
         T("Disk Yönetimi", "Disk Management", "diskmgmt.msc", "bölüm partition biçimlendir format sürücü harfi"),
         T("Bilgisayar Yönetimi", "Computer Management", "compmgmt.msc"),
@@ -88,7 +88,7 @@ public static class Catalog
         T("Dosya Gezgini", "File Explorer", "explorer.exe", "explorer dosyalar files klasör"),
         T("Çalıştır", "Run", "explorer.exe", "run dialog çalıştır", "shell:::{2559a1f3-21d7-11d4-bdaf-00c04f60b9f0}"),
 
-        // ---- Klasörler
+        // ---- Folders
         F("Bu Bilgisayar", "This PC", "shell:MyComputerFolder", "bilgisayarım my computer diskler drives"),
         F("Geri Dönüşüm Kutusu", "Recycle Bin", "shell:RecycleBinFolder", "çöp kutusu trash silinenler"),
         F("İndirilenler", "Downloads", "shell:Downloads"),
@@ -102,7 +102,7 @@ public static class Catalog
         F("Yazı Tipleri", "Fonts", "shell:Fonts", "font"),
         F("Ağ", "Network", "shell:NetworkPlacesFolder", "paylaşım share"),
 
-        // ---- Ayarlar sayfaları
+        // ---- Settings pages
         S("Ayarlar", "Settings", "ms-settings:", "settings ayar"),
         S("Sistem", "System", "ms-settings:system"),
         S("Ekran", "Display", "ms-settings:display", "çözünürlük resolution parlaklık brightness ölçek scale monitör"),
@@ -164,7 +164,7 @@ public static class Catalog
         S("Windows Update", "Windows Update", "ms-settings:windowsupdate", "güncelleme update güncelleştirme"),
         S("Windows Güvenliği", "Windows Security", "windowsdefender:", "antivirüs antivirus defender virüs virus tehdit threat"),
 
-        // ---- Yalnızca takma ad: Başlat menüsündeki uygulamalar iki dilde de bulunsun
+        // ---- Alias only: make Start menu apps findable in both languages
         A("Fotoğraflar", "Photos", "resim galeri gallery"),
         A("Saat", "Clock", "alarm zamanlayıcı timer kronometre stopwatch"),
         A("Takvim", "Calendar"),
@@ -194,7 +194,7 @@ public static class Catalog
         A("Mozilla Firefox", "Mozilla Firefox", "firefox tarayıcı browser internet"),
     };
 
-    /// <summary>Komutun bu bilgisayarda gerçekten bulunup bulunmadığı (ör. Home sürümünde gpedit.msc yok).</summary>
+    /// <summary>Whether the command actually exists on this PC (e.g. Home editions have no gpedit.msc).</summary>
     public static bool IsAvailable(Item item)
     {
         if (item.Command == null) return false;
@@ -203,7 +203,7 @@ public static class Catalog
         return ResolvePath(cmd) != null;
     }
 
-    /// <summary>Komutun tam yolu (System32, Windows ya da PATH içinde).</summary>
+    /// <summary>Full path of the command (in System32, Windows or on the PATH).</summary>
     public static string? ResolvePath(string cmd)
     {
         if (Path.IsPathRooted(cmd)) return File.Exists(cmd) ? cmd : null;
@@ -223,12 +223,12 @@ public static class Catalog
             }
             catch { }
         }
-        // Mağaza uygulamalarının çalıştırma takma adları (ör. wt.exe)
+        // App execution aliases of Store apps (e.g. wt.exe)
         var aliases = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", cmd);
         return File.Exists(aliases) ? aliases : null;
     }
 
-    /// <summary>Simge kaynağı: ayarlar için Ayarlar uygulaması, klasörler için kabuk yolu, araçlar için dosyanın kendisi.</summary>
+    /// <summary>Icon source: the Settings app for settings, the shell path for folders, the file itself for tools.</summary>
     public static string? IconSource(Item item) => item.Kind switch
     {
         EntryKind.Setting => item.Command == "windowsdefender:"

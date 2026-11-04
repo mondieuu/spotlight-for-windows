@@ -9,16 +9,21 @@ using System.Windows.Media.Imaging;
 
 namespace Odak;
 
-/// <summary>Kurulum ve kaldırma penceresi (Apple tarzı: sade, tek odaklı, koyu cam kart).</summary>
+/// <summary>Install and uninstall window (Apple style: simple, single focus, dark glass card).</summary>
 public sealed class SetupWindow : Window
 {
+    private enum Stage { Start, Busy, Done, Error }
+
     private readonly bool _uninstall;
+    private Stage _stage = Stage.Start;
+    private string _errorTitle = "", _errorMessage = "";
     private readonly TextBlock _title = new(), _body = new(), _note = new();
-    private readonly CheckBox _startup = Check("Windows ile başlat (arka planda, Alt+Space ile açılır)", true);
-    private readonly CheckBox _desktop = Check("Masaüstüne kısayol ekle", false);
-    private readonly CheckBox _downloads = Check("İndirdiğim MP3/MP4 dosyalarını da sil (İndirilenler\\Spotlight)", false);
-    private readonly Button _primary, _secondary;
+    private readonly CheckBox _startup = Check(true);
+    private readonly CheckBox _desktop = Check(false);
+    private readonly CheckBox _downloads = Check(false);
+    private readonly Button _primary, _secondary, _langEn, _langTr;
     private readonly StackPanel _options = new() { Margin = new Thickness(0, 22, 0, 0) };
+    private readonly Grid _buttons = new() { Margin = new Thickness(0, 26, 0, 0) };
     private Action? _primaryAction;
 
     private static readonly Brush Fg = Frozen(Colors.White);
@@ -30,7 +35,6 @@ public sealed class SetupWindow : Window
     public SetupWindow(bool uninstall)
     {
         _uninstall = uninstall;
-        Title = uninstall ? "Spotlight'ı Kaldır" : "Spotlight Kurulumu";
         Width = 500;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
@@ -42,15 +46,27 @@ public sealed class SetupWindow : Window
         UseLayoutRounding = true;
         try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/odak.ico")); } catch { }
 
-        _primary = PillButton(uninstall ? "Kaldır" : "Kur", uninstall ? Destructive : Accent);
-        _secondary = PillButton("Vazgeç", Secondary);
+        _primary = PillButton(uninstall ? Destructive : Accent, 44, 15);
+        _secondary = PillButton(Secondary, 44, 15);
         _primary.Click += (_, _) => _primaryAction?.Invoke();
         _secondary.Click += (_, _) => Close();
+
+        // Language switch (top right). English is the default; the choice is also used by the app.
+        _langEn = PillButton(Brushes.Transparent, 26, 12);
+        _langTr = PillButton(Brushes.Transparent, 26, 12);
+        _langEn.Content = "EN";
+        _langTr.Content = "TR";
+        _langEn.Width = _langTr.Width = 40;
+        _langEn.Click += (_, _) => SetLanguage("en");
+        _langTr.Click += (_, _) => SetLanguage("tr");
+        var lang = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, -14, -16, 0) };
+        lang.Children.Add(_langEn);
+        lang.Children.Add(_langTr);
 
         var icon = new Image { Width = 84, Height = 84, Margin = new Thickness(0, 0, 0, 16), HorizontalAlignment = HorizontalAlignment.Center };
         try
         {
-            // .ico içindeki en büyük (256 px) kareyi kullan; küçüğünü büyütmek bulanık görünür.
+            // Use the largest (256 px) frame in the .ico; scaling up a small one looks blurry.
             var decoder = BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/odak.ico"), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
             BitmapFrame? best = null;
             foreach (var f in decoder.Frames) if (best == null || f.PixelWidth > best.PixelWidth) best = f;
@@ -80,20 +96,20 @@ public sealed class SetupWindow : Window
         _note.TextAlignment = TextAlignment.Center;
         _note.Margin = new Thickness(0, 18, 0, 0);
 
-        var buttons = new Grid { Margin = new Thickness(0, 26, 0, 0) };
-        buttons.ColumnDefinitions.Add(new ColumnDefinition());
-        buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
-        buttons.ColumnDefinitions.Add(new ColumnDefinition());
+        _buttons.ColumnDefinitions.Add(new ColumnDefinition());
+        _buttons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+        _buttons.ColumnDefinitions.Add(new ColumnDefinition());
         Grid.SetColumn(_primary, 2);
-        buttons.Children.Add(_secondary);
-        buttons.Children.Add(_primary);
+        _buttons.Children.Add(_secondary);
+        _buttons.Children.Add(_primary);
 
-        var content = new StackPanel { Margin = new Thickness(36, 34, 36, 30) };
+        var content = new StackPanel { Margin = new Thickness(36, 30, 36, 30) };
+        content.Children.Add(lang);
         content.Children.Add(icon);
         content.Children.Add(_title);
         content.Children.Add(_body);
         content.Children.Add(_options);
-        content.Children.Add(buttons);
+        content.Children.Add(_buttons);
         content.Children.Add(_note);
 
         var card = new Border
@@ -107,123 +123,172 @@ public sealed class SetupWindow : Window
         };
         Content = new Border { Padding = new Thickness(30, 20, 30, 40), Child = card };
         card.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
-        KeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+        KeyDown += (_, e) => { if (e.Key == Key.Escape && _stage != Stage.Busy) Close(); };
 
-        if (uninstall) ShowUninstallStart(); else ShowInstallStart();
+        Render();
     }
 
-    // ---- Kurulum
-
-    private void ShowInstallStart()
+    private void SetLanguage(string language)
     {
-        bool update = Installer.IsInstalled;
-        _title.Text = update ? "Spotlight'ı Güncelle" : "Spotlight";
-        _body.Text = "Uygulamaları, dosyaları ve Windows ayarlarını Türkçe ve İngilizce ara; " +
-                     "YouTube ve Instagram bağlantılarını MP3/MP4 olarak indir. Alt+Space ile aç.";
+        AppSettings.Current.Language = language;
+        AppSettings.Current.Save();
+        Render();
+    }
+
+    /// <summary>Fills every text for the current stage and language.</summary>
+    private void Render()
+    {
+        bool tr = AppSettings.Current.IsTurkish;
+        _langEn.Background = tr ? Brushes.Transparent : Secondary;
+        _langTr.Background = tr ? Secondary : Brushes.Transparent;
+        _langEn.FontWeight = tr ? FontWeights.Normal : FontWeights.SemiBold;
+        _langTr.FontWeight = tr ? FontWeights.SemiBold : FontWeights.Normal;
+        Title = _uninstall ? L.T("Uninstall Spotlight", "Spotlight'ı Kaldır") : L.T("Spotlight Setup", "Spotlight Kurulumu");
+        _secondary.Content = L.T("Cancel", "Vazgeç");
+        Label(_startup, L.T("Start with Windows (runs in the background, opens with Alt+Space)", "Windows ile başlat (arka planda, Alt+Space ile açılır)"));
+        Label(_desktop, L.T("Add a desktop shortcut", "Masaüstüne kısayol ekle"));
+        Label(_downloads, L.T("Also delete my downloaded MP3/MP4 files (Downloads\\Spotlight)", "İndirdiğim MP3/MP4 dosyalarını da sil (İndirilenler\\Spotlight)"));
+
+        switch (_stage)
+        {
+            case Stage.Start when _uninstall:
+                _title.Text = L.T("Uninstall Spotlight?", "Spotlight kaldırılsın mı?");
+                _body.Text = L.T("The program, file index, settings, download tools, shortcuts and registry entries will be removed. Nothing from Spotlight is left on your PC.",
+                                 "Program, dosya dizini, ayarlar, indirme araçları, kısayollar ve kayıt defteri girdileri silinir. Bilgisayarda Spotlight'tan iz kalmaz.");
+                SetOptions(_downloads);
+                _primary.Content = L.T("Uninstall", "Kaldır");
+                _note.Text = L.T("Your downloaded files are only deleted if you tick the box.", "İndirdiğin dosyalar sen işaretlemedikçe silinmez.");
+                _primaryAction = RunUninstall;
+                break;
+            case Stage.Start:
+                bool update = Installer.IsInstalled;
+                _title.Text = update ? L.T("Update Spotlight", "Spotlight'ı Güncelle") : "Spotlight";
+                _body.Text = L.T("Search apps, files and Windows settings in English and Turkish, and download YouTube and Instagram links as MP3/MP4. Open it with Alt+Space.",
+                                 "Uygulamaları, dosyaları ve Windows ayarlarını İngilizce ve Türkçe ara; YouTube ve Instagram bağlantılarını MP3/MP4 olarak indir. Alt+Space ile aç.");
+                SetOptions(_startup, _desktop);
+                _primary.Content = update ? L.T("Update", "Güncelle") : L.T("Install", "Kur");
+                _note.Text = L.T("Installs for this user only; no administrator rights needed.", "Yalnızca bu kullanıcıya kurulur, yönetici izni gerekmez.") + "\n" + Installer.InstallDir;
+                _primaryAction = RunInstall;
+                break;
+            case Stage.Busy:
+                _primary.Content = _uninstall ? L.T("Uninstalling…", "Kaldırılıyor…") : L.T("Installing…", "Kuruluyor…");
+                break;
+            case Stage.Done when _uninstall:
+                _title.Text = L.T("Spotlight was uninstalled", "Spotlight kaldırıldı");
+                _body.Text = L.T("All its files and settings were deleted. The program folder is removed when you close this window.",
+                                 "Tüm dosyaları ve ayarları silindi. Bu pencereyi kapatınca program klasörü de kaldırılacak.");
+                SetOptions();
+                _note.Text = "";
+                _primary.Content = L.T("Close", "Kapat");
+                _primaryAction = Close;
+                break;
+            case Stage.Done:
+                _title.Text = L.T("Spotlight is installed", "Spotlight kuruldu");
+                _body.Text = L.T("Open it from the Start menu or from anywhere with Alt+Space. To uninstall: Settings › Apps › Installed apps › Spotlight.",
+                                 "Başlat menüsünden ya da her yerden Alt+Space ile açabilirsin. Kaldırmak için: Ayarlar › Uygulamalar › Yüklü uygulamalar › Spotlight.");
+                SetOptions();
+                _note.Text = "";
+                _primary.Content = L.T("Open Spotlight", "Spotlight'ı Aç");
+                _primaryAction = () => { Installer.LaunchInstalled(); Close(); };
+                break;
+            case Stage.Error:
+                _title.Text = _errorTitle;
+                _body.Text = _errorMessage;
+                _primary.Content = L.T("Try again", "Tekrar dene");
+                _primaryAction = _uninstall ? RunUninstall : RunInstall;
+                break;
+        }
+    }
+
+    private void SetOptions(params CheckBox[] boxes)
+    {
         _options.Children.Clear();
-        _options.Children.Add(_startup);
-        _options.Children.Add(_desktop);
-        _primary.Content = update ? "Güncelle" : "Kur";
-        _note.Text = $"Yalnızca bu kullanıcıya kurulur, yönetici izni gerekmez.\n{Installer.InstallDir}";
-        _primaryAction = RunInstall;
+        foreach (var b in boxes) _options.Children.Add(b);
     }
 
     private async void RunInstall()
     {
-        SetBusy("Kuruluyor…");
+        SetBusy();
         try
         {
             bool startup = _startup.IsChecked == true, desktop = _desktop.IsChecked == true;
             await Task.Run(() => Installer.Install(startup, desktop));
-            _title.Text = "Spotlight kuruldu";
-            _body.Text = "Başlat menüsünden ya da her yerden Alt+Space ile açabilirsin. " +
-                         "Kaldırmak için: Ayarlar › Uygulamalar › Yüklü uygulamalar › Spotlight.";
-            _options.Children.Clear();
-            _note.Text = "";
-            Done("Spotlight'ı Aç", () => { Installer.LaunchInstalled(); Close(); });
+            ShowDone();
         }
         catch (Exception ex)
         {
-            ShowError("Kurulum tamamlanamadı", ex.Message);
+            ShowError(L.T("Setup could not finish", "Kurulum tamamlanamadı"), ex.Message);
         }
-    }
-
-    // ---- Kaldırma
-
-    private void ShowUninstallStart()
-    {
-        _title.Text = "Spotlight kaldırılsın mı?";
-        _body.Text = "Program, dosya dizini, ayarlar, indirme araçları, kısayollar ve kayıt defteri girdileri silinir. " +
-                     "Bilgisayarda Spotlight'tan iz kalmaz.";
-        _options.Children.Clear();
-        _options.Children.Add(_downloads);
-        _note.Text = "İndirdiğin dosyalar sen işaretlemedikçe silinmez.";
-        _primaryAction = RunUninstall;
     }
 
     private async void RunUninstall()
     {
-        SetBusy("Kaldırılıyor…");
+        SetBusy();
         try
         {
             bool downloads = _downloads.IsChecked == true;
             await Task.Run(() => Installer.Uninstall(downloads));
-            _title.Text = "Spotlight kaldırıldı";
-            _body.Text = "Tüm dosyaları ve ayarları silindi. Bu pencereyi kapatınca program klasörü de kaldırılacak.";
-            _options.Children.Clear();
-            _note.Text = "";
-            Done("Kapat", Close);
+            ShowDone();
         }
         catch (Exception ex)
         {
-            ShowError("Kaldırma tamamlanamadı", ex.Message);
+            ShowError(L.T("Uninstall could not finish", "Kaldırma tamamlanamadı"), ex.Message);
         }
     }
 
-    // ---- Yardımcılar
+    // ---- Stages
 
-    private void SetBusy(string text)
+    private void SetBusy()
     {
-        _primary.IsEnabled = _secondary.IsEnabled = false;
+        _stage = Stage.Busy;
+        _primary.IsEnabled = _secondary.IsEnabled = _langEn.IsEnabled = _langTr.IsEnabled = false;
         foreach (var child in _options.Children) ((UIElement)child).IsEnabled = false;
-        _primary.Content = text;
+        Render();
     }
 
-    private void Done(string label, Action action)
+    private void ShowDone()
     {
+        _stage = Stage.Done;
         _secondary.Visibility = Visibility.Collapsed;
         Grid.SetColumn(_primary, 0);
         Grid.SetColumnSpan(_primary, 3);
         _primary.Background = Accent;
-        _primary.Content = label;
         _primary.IsEnabled = true;
-        _primaryAction = action;
+        // After uninstalling, changing the language would write a settings file again: keep it locked.
+        _langEn.IsEnabled = _langTr.IsEnabled = !_uninstall;
+        Render();
         _primary.Focus();
     }
 
     private void ShowError(string title, string message)
     {
-        _title.Text = title;
-        _body.Text = message;
-        _primary.IsEnabled = _secondary.IsEnabled = true;
-        _primary.Content = "Tekrar dene";
+        _stage = Stage.Error;
+        _errorTitle = title;
+        _errorMessage = message;
+        _primary.IsEnabled = _secondary.IsEnabled = _langEn.IsEnabled = _langTr.IsEnabled = true;
+        foreach (var child in _options.Children) ((UIElement)child).IsEnabled = true;
+        Render();
     }
 
-    private static CheckBox Check(string text, bool on) => new()
+    // ---- Helpers
+
+    private static CheckBox Check(bool on) => new()
     {
-        Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 13.5 },
+        Content = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 13.5 },
         IsChecked = on,
         Foreground = Fg,
         Margin = new Thickness(4, 6, 0, 6),
         VerticalContentAlignment = VerticalAlignment.Center,
     };
 
-    /// <summary>Hap biçimli düğme; basılınca anında hafifçe kararır.</summary>
-    private static Button PillButton(string text, Brush background)
+    private static void Label(CheckBox box, string text) => ((TextBlock)box.Content).Text = text;
+
+    /// <summary>A pill-shaped button that dims slightly the moment it is pressed.</summary>
+    private static Button PillButton(Brush background, double height, double fontSize)
     {
         var template = new ControlTemplate(typeof(Button));
         var border = new FrameworkElementFactory(typeof(Border)) { Name = "Bg" };
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(height >= 40 ? 12 : 8));
         border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
@@ -239,9 +304,8 @@ public sealed class SetupWindow : Window
 
         return new Button
         {
-            Content = text,
-            Height = 44,
-            FontSize = 15,
+            Height = height,
+            FontSize = fontSize,
             FontWeight = FontWeights.SemiBold,
             Foreground = Fg,
             Background = background,

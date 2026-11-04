@@ -15,7 +15,7 @@
         UseLayoutRounding="True">
 
     <Window.Resources>
-        <!-- Tema renkleri kod tarafında açık/koyu moda göre değiştirilir. -->
+        <!-- Theme colours are switched in code for light/dark mode. -->
         <SolidColorBrush x:Key="Fg" Color="White" />
         <SolidColorBrush x:Key="FgDim" Color="#99FFFFFF" />
         <SolidColorBrush x:Key="Tint" Color="#7A1C1C1E" />
@@ -23,7 +23,7 @@
         <SolidColorBrush x:Key="Hover" Color="#14FFFFFF" />
         <SolidColorBrush x:Key="Accent" Color="#0A84FF" />
 
-        <!-- Liquid Glass ışık kenarı: sol üstten gelen güçlü ışık, sağ altta karşı yansıma. -->
+        <!-- Liquid Glass light rim: strong light from the top left, a counter-reflection at the bottom right. -->
         <LinearGradientBrush x:Key="Rim" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#E6FFFFFF" Offset="0" />
             <GradientStop Color="#40FFFFFF" Offset="0.22" />
@@ -31,7 +31,7 @@
             <GradientStop Color="#33FFFFFF" Offset="0.8" />
             <GradientStop Color="#99FFFFFF" Offset="1" />
         </LinearGradientBrush>
-        <!-- İç kenar: camın kalınlığını hissettiren ince ikinci ışık çizgisi. -->
+        <!-- Inner rim: a thin second light line that conveys the thickness of the glass. -->
         <LinearGradientBrush x:Key="InnerRim" StartPoint="0,0" EndPoint="0,1">
             <GradientStop Color="#38FFFFFF" Offset="0" />
             <GradientStop Color="#00FFFFFF" Offset="0.4" />
@@ -39,7 +39,7 @@
             <GradientStop Color="#1FFFFFFF" Offset="1" />
         </LinearGradientBrush>
 
-        <!-- macOS tarzı ince, yuvarlak kaydırma çubuğu (ok düğmeleri yok) -->
+        <!-- Thin, rounded macOS-style scrollbar (no arrow buttons) -->
         <Style TargetType="ScrollBar">
             <Setter Property="Width" Value="10" />
             <Setter Property="MinWidth" Value="10" />
@@ -86,7 +86,7 @@
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <!-- Bölüm başlıkları seçilemez. -->
+                <!-- Section headers are not selectable. -->
                 <DataTrigger Binding="{Binding IsHeader}" Value="True">
                     <Setter Property="IsEnabled" Value="False" />
                     <Setter Property="Focusable" Value="False" />
@@ -95,26 +95,26 @@
         </Style>
     </Window.Resources>
 
-    <!-- Cam paneli: yüksekliği yay animasyonuyla içeriğe uyar; açılıp kapanırken üst-ortadan büyür/küçülür.
-         Kenar boşlukları gölgeye yer açar. -->
+    <!-- Glass panel: its height springs to fit the content; it grows/shrinks from the top centre when opening/closing.
+         The margins leave room for the shadow. -->
     <Grid x:Name="Panel" Margin="40,24,40,0" VerticalAlignment="Top" Height="68" Opacity="0"
           RenderTransformOrigin="0.5,0">
         <Grid.RenderTransform>
             <ScaleTransform x:Name="PanelScale" ScaleX="0.94" ScaleY="0.94" />
         </Grid.RenderTransform>
-        <!-- Yumuşak, geniş gölge (cam havada süzülüyormuş gibi) -->
+        <!-- Soft, wide shadow (as if the glass were floating) -->
         <Border CornerRadius="28" Background="Black">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="56" ShadowDepth="16" Direction="270" Opacity="0.38" RenderingBias="Performance" />
             </Border.Effect>
         </Border>
 
-        <!-- Bulanık + kenarlarda kırılan ekran görüntüsü (kod tarafında her açılışta yenilenir) -->
+        <!-- Blurred screen capture with refracted edges (refreshed in code on every open) -->
         <Border x:Name="Glass" CornerRadius="28" Background="#FF2A2A2E" SizeChanged="OnGlassSizeChanged" />
 
-        <!-- Renk tonu -->
+        <!-- Tint -->
         <Border CornerRadius="28" Background="{DynamicResource Tint}" />
-        <!-- Üstten gelen yumuşak parlama -->
+        <!-- Soft glow from the top -->
         <Border CornerRadius="28" IsHitTestVisible="False">
             <Border.Background>
                 <RadialGradientBrush Center="0.3,0" GradientOrigin="0.3,0" RadiusX="0.9" RadiusY="0.55">
@@ -123,14 +123,14 @@
                 </RadialGradientBrush>
             </Border.Background>
         </Border>
-        <!-- Işık kenarları -->
+        <!-- Light rims -->
         <Border CornerRadius="27" Margin="1.5" BorderThickness="1" BorderBrush="{StaticResource InnerRim}" IsHitTestVisible="False" />
         <Border CornerRadius="28" BorderThickness="1.3" BorderBrush="{StaticResource Rim}" IsHitTestVisible="False" />
 
-        <!-- İçerik serbest yükseklikte ölçülür; panel ona doğru yaylanır, taşan kısım yuvarlak köşeden kırpılır. -->
+        <!-- Content is measured at unconstrained height; the panel springs toward it, and overflow is clipped to the rounded corners. -->
         <Canvas x:Name="ContentHost" ClipToBounds="True" SizeChanged="OnContentHostSizeChanged">
         <StackPanel x:Name="ResultsContent" Width="720" SizeChanged="OnContentSizeChanged">
-            <!-- Arama alanı -->
+            <!-- Search field -->
             <Grid Height="68" Margin="24,0,24,0">
                 <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="22"
                            Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" />
@@ -156,18 +156,18 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>
-                            <!-- Bölüm başlığı -->
+                            <!-- Section header -->
                             <TextBlock Text="{Binding Title}" Visibility="{Binding HeaderVisibility}" Margin="12,10,0,4"
                                        FontFamily="Segoe UI Variable Small, Segoe UI" FontSize="11.5" FontWeight="SemiBold"
                                        Foreground="{DynamicResource FgDim}" />
-                            <!-- Sonuç satırı -->
+                            <!-- Result row -->
                             <Grid Height="54" Margin="10,0" Visibility="{Binding RowVisibility}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="42" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <!-- Uygulama/dosya simgesi ya da iOS tarzı renkli sembol kutusu -->
+                                <!-- App/file icon, or an iOS-style coloured symbol tile -->
                                 <Image Source="{Binding Icon}" Width="34" Height="34" Visibility="{Binding IconVisibility}"
                                        RenderOptions.BitmapScalingMode="HighQuality" />
                                 <Border Width="32" Height="32" CornerRadius="8" Background="{Binding GlyphBackground}"
@@ -182,7 +182,7 @@
                                                  Visibility="{Binding ProgressVisibility}" BorderThickness="0"
                                                  Background="#33FFFFFF" Foreground="White" />
                                 </StackPanel>
-                                <!-- Seçili dosyada kısayol ipucu -->
+                                <!-- Shortcut hint on the selected file -->
                                 <TextBlock Grid.Column="2" Text="{Binding Hint}" FontSize="11.5" Opacity="0.8"
                                            VerticalAlignment="Center" Margin="12,0,4,0">
                                     <TextBlock.Style>

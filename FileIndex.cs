@@ -9,22 +9,22 @@ using System.Threading.Tasks;
 
 namespace Odak;
 
-/// <summary>Arama sonucu: tam yol, klasör mü, puan.</summary>
+/// <summary>Search result: full path, whether it is a folder, score.</summary>
 public readonly record struct FileHit(string Path, bool IsDirectory, int Score);
 
 /// <summary>
-/// Bilgisayardaki tüm sabit diskleri tarayan, bellekte tutulan dosya dizini.
-/// - Kayıt başına yalnızca ad + üst klasör numarası tutulur (yollar aramada birleştirilir) → az bellek.
-/// - Dizin diske önbelleğe alınır; açılışta anında yüklenir, arka planda düşük öncelikle yenilenir.
-/// - Çalışırken yeni/silinen dosyalar FileSystemWatcher ile anında yakalanır.
-/// - Arama tüm çekirdeklerde paralel, Türkçe karakter duyarsız alt dize eşleşmesidir.
+/// In-memory file index that scans every fixed drive on the PC.
+/// - Each entry stores only its name + parent folder number (paths are assembled at search time) → low memory.
+/// - The index is cached to disk; it loads instantly at startup and is refreshed in the background at low priority.
+/// - While running, new/deleted files are picked up immediately via FileSystemWatcher.
+/// - Search is a parallel, all-cores substring match that ignores Turkish/accented character differences.
 /// </summary>
 public static class FileIndex
 {
     private const byte FlagDir = 1;
     private static readonly TimeSpan RescanEvery = TimeSpan.FromHours(3);
 
-    // Değişmez anlık görüntü: tarama bitince tek hamlede değiştirilir, aramalar kilitsiz okur.
+    // Immutable snapshot: swapped in one step when a scan finishes; searches read it without locks.
     private sealed class Snapshot
     {
         public string[] Names = Array.Empty<string>();
@@ -47,7 +47,7 @@ public static class FileIndex
     private static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Spotlight");
     private static string CacheFile => Path.Combine(DataDir, "files.idx");
 
-    // Taranmayan, yalnızca sistem kopyaları/önbellek içeren büyük klasörler.
+    // Large folders that are skipped: they contain only system copies/caches.
     private static readonly HashSet<string> SkipPaths = BuildSkipPaths();
     private static readonly HashSet<string> SkipNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -69,7 +69,7 @@ public static class FileIndex
         };
     }
 
-    /// <summary>Önbelleği yükler, arka planda taramayı ve izlemeyi başlatır.</summary>
+    /// <summary>Loads the cache, then starts scanning and watching in the background.</summary>
     public static void Start()
     {
         Task.Run(() =>
@@ -77,14 +77,14 @@ public static class FileIndex
             bool loaded = TryLoad();
             StartWatchers();
             var age = File.Exists(CacheFile) ? DateTime.Now - File.GetLastWriteTime(CacheFile) : TimeSpan.MaxValue;
-            // Önbellek varsa açılışı yavaşlatmamak için biraz bekle; yoksa hemen tara.
+            // If a cache exists, wait a little so startup is not slowed down; otherwise scan right away.
             var first = !loaded ? TimeSpan.Zero : age > TimeSpan.FromMinutes(30) ? TimeSpan.FromSeconds(20) : RescanEvery - age;
             if (first < TimeSpan.Zero) first = TimeSpan.Zero;
             _timer = new Timer(_ => Rescan(), null, first, RescanEvery);
         });
     }
 
-    // ---- Tarama
+    // ---- Scanning
 
     private static void Rescan()
     {
@@ -96,7 +96,7 @@ public static class FileIndex
                 var started = DateTime.Now;
                 var snap = Scan();
                 _snap = snap;
-                // Tarama sırasında gelen değişiklikler zaten anlık görüntüde; eskileri temizle.
+                // Changes that arrived during the scan are already in the snapshot; clear the old ones.
                 foreach (var key in Added.Keys) if (File.GetLastWriteTime(key) < started) Added.TryRemove(key, out _);
                 Removed.Clear();
                 Save(snap);
@@ -152,8 +152,8 @@ public static class FileIndex
             {
                 if (e.Dir)
                 {
-                    // Gizli+sistem klasörleri (ör. System Volume Information) ve bağlantılar (junction) atlanır;
-                    // OneDrive gibi bulut klasörleri bağlantı sayılmaz, taranır.
+                    // Hidden+system folders (e.g. System Volume Information) and links (junctions) are skipped;
+                    // cloud folders such as OneDrive do not count as links and are scanned.
                     if ((e.Attr & (FileAttributes.Hidden | FileAttributes.System)) == (FileAttributes.Hidden | FileAttributes.System)) continue;
                     if (SkipNames.Contains(e.Name)) continue;
                     var full = Path.Join(dir, e.Name);
@@ -184,7 +184,7 @@ public static class FileIndex
         return false;
     }
 
-    // ---- Canlı değişiklikler
+    // ---- Live changes
 
     private static void StartWatchers()
     {
@@ -222,9 +222,9 @@ public static class FileIndex
         if (!Added.TryRemove(path, out _) && Removed.Count < 50_000) Removed[path] = 0;
     }
 
-    // ---- Arama
+    // ---- Search
 
-    // Karakter katlama tablosu: küçük harf + Türkçe/aksanlı harfler → ASCII ("Şirket" → "sirket").
+    // Character folding table: lowercase + Turkish/accented letters → ASCII ("Şirket" → "sirket").
     private static readonly char[] FoldTable = BuildFoldTable();
 
     private static char[] BuildFoldTable()
@@ -254,7 +254,7 @@ public static class FileIndex
         return new string(chars);
     }
 
-    /// <summary>Katlanmış adda terimin ilk geçtiği yer (-1 = yok).</summary>
+    /// <summary>Position of the first occurrence of the term in the folded name (-1 = none).</summary>
     private static int Find(string name, string term)
     {
         int n = name.Length, m = term.Length;
@@ -284,11 +284,11 @@ public static class FileIndex
 
         var q = terms[0];
         int score;
-        if (pos == 0 && name.Length == q.Length) score = 1000;                                   // tam ad
-        else if (pos == 0 && name.Length > q.Length && name[q.Length] == '.' && name.IndexOf('.', q.Length + 1) < 0) score = 900; // uzantısız tam ad
-        else if (pos == 0) score = 700;                                                          // başlıyor
-        else if (!char.IsLetterOrDigit(name[pos - 1])) score = 500;                               // kelime başı
-        else score = 250;                                                                        // içeriyor
+        if (pos == 0 && name.Length == q.Length) score = 1000;                                   // exact name
+        else if (pos == 0 && name.Length > q.Length && name[q.Length] == '.' && name.IndexOf('.', q.Length + 1) < 0) score = 900; // exact name without extension
+        else if (pos == 0) score = 700;                                                          // starts with
+        else if (!char.IsLetterOrDigit(name[pos - 1])) score = 500;                               // word start
+        else score = 250;                                                                        // contains
 
         if (isDir) score += 15;
         else
@@ -297,7 +297,7 @@ public static class FileIndex
             if (ext.Equals(".exe", StringComparison.OrdinalIgnoreCase) || ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase)) score += 40;
             else if (SystemExts.Contains(ext))
             {
-                // Sistem kitaplıkları yalnızca uzantı yazılınca gösterilir ("shell32.dll"); yoksa sonuçları kirletir.
+                // System libraries are shown only when the extension is typed ("shell32.dll"); otherwise they clutter the results.
                 if (!terms.Any(t => t.Contains('.'))) return 0;
                 score -= 120;
             }
@@ -315,14 +315,14 @@ public static class FileIndex
 
     private static int Penalty(string path)
     {
-        // Kullanıcının asıl dosyaları önde; sistem/uygulama verisi klasörleri geride.
+        // The user's own files come first; system/app-data folders rank lower.
         if (path.Contains(@"\AppData\", StringComparison.OrdinalIgnoreCase)) return 140;
         if (path.StartsWith(@"C:\Windows\", StringComparison.OrdinalIgnoreCase)) return 120;
         if (path.StartsWith(@"C:\ProgramData\", StringComparison.OrdinalIgnoreCase)) return 90;
         return Math.Min(path.Count(c => c == '\\') * 4, 40);
     }
 
-    /// <summary>Dosya ve klasör adlarında arar; en iyi <paramref name="max"/> sonucu döndürür.</summary>
+    /// <summary>Searches file and folder names; returns the best <paramref name="max"/> results.</summary>
     public static List<FileHit> Search(string query, int max, CancellationToken ct)
     {
         var terms = FoldQuery(query.Trim()).Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -373,7 +373,7 @@ public static class FileIndex
         return hits.OrderByDescending(h => h.Score).Take(max).ToList();
     }
 
-    // ---- Önbellek
+    // ---- Cache
 
     private static void Save(Snapshot s)
     {
@@ -383,7 +383,7 @@ public static class FileIndex
             var tmp = CacheFile + ".tmp";
             using (var w = new BinaryWriter(new BufferedStream(File.Create(tmp), 1 << 20)))
             {
-                w.Write(1); // sürüm
+                w.Write(1); // version
                 w.Write(s.Count);
                 for (int i = 0; i < s.Count; i++)
                 {

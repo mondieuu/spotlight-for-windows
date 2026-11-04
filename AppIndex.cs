@@ -12,7 +12,7 @@ using System.Windows.Media;
 
 namespace Odak;
 
-/// <summary>Aranabilir bir ad (asıl ad, diğer dildeki adı ya da anahtar kelimeler).</summary>
+/// <summary>A searchable name (the main name, the name in the other language, or keywords).</summary>
 public sealed class SearchKey
 {
     public SearchKey(string text, int penalty, bool keyword)
@@ -31,7 +31,7 @@ public sealed class SearchKey
     public bool IsKeyword { get; }
 }
 
-/// <summary>Başlatılabilir bir sonuç: Başlat menüsündeki uygulama, Windows aracı, Ayarlar sayfası ya da klasör.</summary>
+/// <summary>A launchable result: a Start menu app, a Windows tool, a Settings page or a folder.</summary>
 public sealed class AppEntry
 {
     public AppEntry(string name, string parsingName, EntryKind kind = EntryKind.App)
@@ -43,14 +43,28 @@ public sealed class AppEntry
     }
 
     public string Name { get; }
-    /// <summary>Kabuk adı (Store uygulamasında AUMID) ya da sistem kaydı için benzersiz anahtar.</summary>
+    /// <summary>Shell parsing name (the AUMID for Store apps), or a unique key for a system entry.</summary>
     public string ParsingName { get; }
     public EntryKind Kind { get; }
-    /// <summary>Diğer dildeki adı ("Aygıt Yöneticisi" ↔ "Device Manager").</summary>
-    public string? AltName { get; set; }
+    /// <summary>English and Turkish names from the catalog ("Device Manager" / "Aygıt Yöneticisi"), if known.</summary>
+    public string? En { get; set; }
+    public string? Tr { get; set; }
+
+    /// <summary>The title in the language chosen in Settings (falls back to the Windows name).</summary>
+    public string DisplayName => (AppSettings.Current.IsTurkish ? Tr : En) ?? Name;
+
+    /// <summary>The name in the other language, shown under the title; null if it is the same.</summary>
+    public string? AltDisplayName
+    {
+        get
+        {
+            var other = (AppSettings.Current.IsTurkish ? En : Tr) ?? (Name != DisplayName ? Name : null);
+            return other != null && Text.Fold(other) != Text.Fold(DisplayName) ? other : null;
+        }
+    }
     public string? Command { get; init; }
     public string? Args { get; init; }
-    /// <summary>Simgenin alınacağı kabuk yolu; null ise sembol gösterilir.</summary>
+    /// <summary>Shell path to take the icon from; if null, a symbol is shown.</summary>
     public string? IconPath { get; init; }
     public List<SearchKey> Keys { get; } = new();
     public ImageSource? Icon { get; set; }
@@ -72,7 +86,7 @@ public static class Text
 {
     private static readonly CultureInfo Tr = new("tr-TR");
 
-    /// <summary>Küçük harf + Türkçe karakter katlama: "Şirket Ağı" → "sirket agi".</summary>
+    /// <summary>Lowercase + Turkish character folding: "Şirket Ağı" → "sirket agi".</summary>
     public static string Fold(string s)
     {
         var sb = new StringBuilder(s.Length);
@@ -88,7 +102,7 @@ public static class Text
         return sb.ToString();
     }
 
-    /// <summary>Kısa kelimeler için düzenleme uzaklığı (yer değiştirme dahil): "manger" ↔ "manager" = 1.</summary>
+    /// <summary>Edit distance for short words (transpositions included): "manger" ↔ "manager" = 1.</summary>
     public static int Distance(string a, string b)
     {
         int n = a.Length, m = b.Length;
@@ -109,8 +123,8 @@ public static class Text
 }
 
 /// <summary>
-/// Uygulama dizini: "Tüm uygulamalar" klasörünü (shell:AppsFolder) okur, iki dilli Windows
-/// kataloğuyla birleştirir, arar ve başlatır.
+/// App index: reads the "All apps" folder (shell:AppsFolder), merges it with the bilingual Windows
+/// catalog, searches it and launches results.
 /// </summary>
 public static class AppIndex
 {
@@ -121,15 +135,12 @@ public static class AppIndex
     private static DateTime _loadedAt = DateTime.MinValue;
     private static readonly Dictionary<string, int> Usage = LoadUsage();
 
-    /// <summary>Windows arayüz dili Türkçe mi (sistem kayıtlarının başlık dili buna göre seçilir).</summary>
-    public static bool UiTurkish { get; } = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "tr";
-
     private static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Spotlight");
     private static string UsageFile => Path.Combine(DataDir, "usage.json");
 
     public static IReadOnlyList<AppEntry> Apps => _apps;
 
-    /// <summary>Dizini arka planda (kabuk COM'u için STA iş parçacığında) yeniler; 5 dakikada bir.</summary>
+    /// <summary>Refreshes the index in the background (on an STA thread, for shell COM) every 5 minutes.</summary>
     public static Task RefreshAsync(bool force = false)
     {
         if (!force && DateTime.Now - _loadedAt < TimeSpan.FromMinutes(5) && _apps.Count > 0) return Task.CompletedTask;
@@ -141,14 +152,14 @@ public static class AppIndex
                 var list = Load();
                 if (list.Count > 0)
                 {
-                    // Önceden yüklenmiş simgeleri koru.
+                    // Keep icons that were already loaded.
                     var old = _apps.GroupBy(a => a.ParsingName).ToDictionary(g => g.Key, g => g.First().Icon);
                     foreach (var a in list) if (old.TryGetValue(a.ParsingName, out var icon)) a.Icon = icon;
                     _apps = list;
                     _loadedAt = DateTime.Now;
                 }
             }
-            catch { /* dizin okunamazsa eski liste kalır */ }
+            catch { /* if the folder cannot be read, the old list stays */ }
             tcs.TrySetResult();
         });
         thread.SetApartmentState(ApartmentState.STA);
@@ -164,7 +175,7 @@ public static class AppIndex
         if (shellType != null)
         {
             dynamic shell = Activator.CreateInstance(shellType)!;
-            // shell:AppsFolder = Başlat menüsündeki "Tüm uygulamalar"
+            // shell:AppsFolder = "All apps" in the Start menu
             dynamic folder = shell.NameSpace("shell:::{4234d49b-0245-4df3-b780-3893943456e1}");
             foreach (dynamic item in folder.Items())
             {
@@ -182,8 +193,8 @@ public static class AppIndex
     }
 
     /// <summary>
-    /// Katalogdaki her kayıt: Başlat menüsünde aynı adlı uygulama varsa ona diğer dildeki adı ve anahtar
-    /// kelimeleri eklenir; yoksa (ve bu bilgisayarda varsa) kendi komutuyla ayrı bir sonuç olur.
+    /// For each catalog entry: if a Start menu app has the same name, the other-language name and keywords
+    /// are added to it; otherwise (if it exists on this PC) it becomes a separate result with its own command.
     /// </summary>
     private static void MergeCatalog(List<AppEntry> list)
     {
@@ -199,26 +210,29 @@ public static class AppIndex
                 app.AddName(item.En);
                 app.AddKeywords(item.Keywords);
                 var folded = Text.Fold(app.Name);
-                var other = folded == tr ? item.En : folded == en ? item.Tr : null;
-                if (other != null && Text.Fold(other) != folded) app.AltName ??= other;
+                if (folded == tr || folded == en)
+                {
+                    app.En ??= item.En;
+                    app.Tr ??= item.Tr;
+                }
                 continue;
             }
             if (item.Kind == EntryKind.App || !Catalog.IsAvailable(item)) continue;
 
-            var title = UiTurkish ? item.Tr : item.En;
-            var alt = UiTurkish ? item.En : item.Tr;
             var cmd = item.Command!.Contains(':') ? item.Command : Catalog.ResolvePath(item.Command) ?? item.Command;
-            var entry = new AppEntry(title, $"sys:{item.Command} {item.Args}".Trim(), item.Kind)
+            var entry = new AppEntry(item.En, $"sys:{item.Command} {item.Args}".Trim(), item.Kind)
             {
                 Command = cmd,
                 Args = item.Args,
                 IconPath = Catalog.IconSource(item),
-                AltName = Text.Fold(alt) != Text.Fold(title) ? alt : null,
+                En = item.En,
+                Tr = item.Tr,
             };
-            entry.AddName(alt);
+            entry.AddName(item.Tr);
             entry.AddKeywords(item.Keywords);
             list.Add(entry);
-            byName.TryAdd(Text.Fold(title), entry);
+            byName.TryAdd(Text.Fold(item.En), entry);
+            byName.TryAdd(Text.Fold(item.Tr), entry);
         }
     }
 
@@ -234,13 +248,13 @@ public static class AppIndex
             if (Fuzzy(qWords, k.Words)) return 35;
             return 0;
         }
-        // Anahtar kelimeler: yalnızca kelime başı ve yazım hatası toleransı, daha düşük puan.
+        // Keywords: word-start and typo-tolerant matches only, with a lower score.
         if (qWords.All(w => w.Length >= 2 && k.Words.Any(x => x.StartsWith(w)))) return 50;
         if (Fuzzy(qWords, k.Words)) return 22;
         return 0;
     }
 
-    /// <summary>Her sorgu kelimesi bir kelimenin başı ya da 1–2 harf hatasıyla aynısı mı ("devise manger" → "device manager").</summary>
+    /// <summary>Whether every query word is the start of a word or matches one within 1–2 typos ("devise manger" → "device manager").</summary>
     private static bool Fuzzy(string[] qWords, string[] words)
     {
         bool anyTypo = false;
@@ -255,7 +269,7 @@ public static class AppIndex
         return anyTypo;
     }
 
-    /// <summary>Puanlı arama (iki dilde): baştan eşleşme &gt; kelime başı &gt; baş harfler &gt; içerir &gt; yazım hatası; sık açılanlar öne.</summary>
+    /// <summary>Scored search (in both languages): prefix &gt; word start &gt; initials &gt; contains &gt; typo; frequently opened items rank higher.</summary>
     public static List<AppEntry> Search(string query, int max = 8)
     {
         var q = Text.Fold(query.Trim());

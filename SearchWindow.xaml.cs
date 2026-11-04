@@ -12,7 +12,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using Microsoft.Win32;
 
 namespace Odak;
 
@@ -22,20 +21,21 @@ public partial class SearchWindow : Window
     private readonly ObservableCollection<ResultItem> _items = new();
     private CancellationTokenSource? _fileSearch;
     private Backdrop? _backdrop;
+    private ResultItem? _webRow;
     private static readonly ConcurrentDictionary<string, ImageSource?> IconCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>İndirme bittiğinde tepsi bildirimi göstermek için (App bağlar).</summary>
+    /// <summary>Shows a tray notification when a download finishes (wired up by App).</summary>
     public Action<string, string, string?>? Notify { get; set; }
 
-    /// <summary>Kayıtlı kısayol: "Alt + Boşluk" ya da yedek "Ctrl + Boşluk".</summary>
-    public string HotkeyText { get; private set; } = "Alt + Boşluk";
+    /// <summary>The registered shortcut: "Alt + Space", or "Ctrl + Space" as a fallback.</summary>
+    public string HotkeyText { get; private set; } = "Alt + Space";
 
-    // Yay animasyonları (Apple: tepki + sönüm). Hepsi kritik sönümlü: sıçrama yok, sakin yerleşme.
-    private readonly Spring _open;    // 0 = kapalı, 1 = açık (saydamlık + ölçek)
-    private readonly Spring _height;  // cam panelinin yüksekliği
+    // Spring animations (Apple style: response + damping). All critically damped: no bounce, a calm settle.
+    private readonly Spring _open;    // 0 = closed, 1 = open (opacity + scale)
+    private readonly Spring _height;  // height of the glass panel
     private bool _closing;
 
-    /// <summary>Windows "Animasyon efektleri" kapalıysa hareket yerine kısa bir saydamlık geçişi kullanılır.</summary>
+    /// <summary>When Windows "Animation effects" is off, motion is replaced by a short fade.</summary>
     private static bool ReduceMotion => !SystemParameters.ClientAreaAnimation;
 
     public SearchWindow()
@@ -44,11 +44,18 @@ public partial class SearchWindow : Window
         Results.ItemsSource = _items;
         _open = new Spring(0, ApplyOpen);
         _height = new Spring(68, h => Panel.Height = Math.Max(68, h));
-        // Başka bir yere tıklanınca macOS'taki gibi kapanır.
+        // Like macOS: clicking anywhere else closes it.
         Deactivated += (_, _) => HideSpotlight();
+        // Theme and language changes from the Settings window apply live.
+        AppSettings.Changed += () => Dispatcher.Invoke(() =>
+        {
+            ApplyAppearance();
+            if (IsVisible) OnQueryChanged(this, null!);
+        });
+        ApplyAppearance();
     }
 
-    /// <summary>Açılış ilerlemesi: cam üst-ortadan hafifçe büyüyerek "belirir", aynı yoldan geri çekilir.</summary>
+    /// <summary>Open progress: the glass grows slightly from the top centre as it appears and leaves along the same path.</summary>
     private void ApplyOpen(double p)
     {
         Panel.Opacity = Math.Clamp(p, 0, 1);
@@ -56,19 +63,19 @@ public partial class SearchWindow : Window
         PanelScale.ScaleX = PanelScale.ScaleY = s;
     }
 
-    // Camın pencere içindeki yeri (XAML'deki kenar boşlukları; gölgeye yer açar).
+    // Where the glass sits inside the window (the XAML margins leave room for the shadow).
     private const double GlassLeft = 40, GlassTop = 24, GlassWidth = 720, GlassMaxHeight = 640, GlassRadius = 28;
 
-    /// <summary>Pencereyi göstermeden oluşturur, kısayolu kaydeder, uygulama ve dosya dizinlerini önceden yükler.</summary>
+    /// <summary>Creates the window without showing it, registers the hotkey and preloads the app and file indexes.</summary>
     public void InitializeHidden()
     {
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
         if (!Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_SPACE))
         {
-            // Alt+Boşluk başka bir uygulamada (ör. PowerToys Run) kayıtlıysa Ctrl+Boşluk.
+            // If Alt+Space is taken by another app (e.g. PowerToys Run), use Ctrl+Space.
             Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE);
-            HotkeyText = "Ctrl + Boşluk";
+            HotkeyText = "Ctrl + Space";
         }
         _ = AppIndex.RefreshAsync(force: true);
         FileIndex.Start();
@@ -96,20 +103,20 @@ public partial class SearchWindow : Window
     {
         if (IsVisible)
         {
-            // Kapanırken yeniden çağrıldı: anlık değerden geri dön (kesintisiz, yeniden yakalama yok).
+            // Called again while closing: reverse from the current value (continuous, no new capture).
             _closing = false;
             _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
             Activate();
             Query.Focus();
             return;
         }
-        ApplyTheme();
-        // macOS'taki gibi: ekranın ortasında, üstten yaklaşık beşte bir aşağıda.
+        ApplyAppearance();
+        // Like macOS: centred, about a fifth of the way down the screen.
         var area = SystemParameters.WorkArea;
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + area.Height * 0.2 - GlassTop;
 
-        // Pencere görünmeden arkasındaki ekranı yakala; cam zemini (bulanık + kenar kırılması) bundan üretilir.
+        // Capture the screen behind the window before it appears; the glass (blur + edge refraction) is built from it.
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
         _backdrop = Backdrop.Capture(
             (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
@@ -123,7 +130,7 @@ public partial class SearchWindow : Window
         Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
         Query.Focus();
         Query.SelectAll();
-        // İlk kareden itibaren girişe açık; animasyon yazmayı hiç bekletmez.
+        // Accepts typing from the first frame; the animation never makes you wait.
         _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
         _ = AppIndex.RefreshAsync();
     }
@@ -133,18 +140,18 @@ public partial class SearchWindow : Window
         if (!IsVisible || _closing) return;
         _fileSearch?.Cancel();
         _closing = true;
-        // Geldiği yoldan geri çekilir (aynı ölçek ekseni), biraz daha hızlı.
+        // Leaves along the path it came in on (same scale axis), a little faster.
         _open.To(0, ReduceMotion ? 0.15 : 0.22, 1.0, settled: () =>
         {
             if (!_closing) return;
             _closing = false;
             Hide();
-            // Bir sonraki açılışta temiz başlasın; süren indirmeler arka planda devam eder.
+            // Start clean next time; running downloads continue in the background.
             if (!_items.Any(i => i.IsBusy)) Query.Text = "";
         });
     }
 
-    // ---- Panel yüksekliği (içerik değiştikçe yaylanır)
+    // ---- Panel height (springs as the content changes)
 
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
@@ -156,7 +163,7 @@ public partial class SearchWindow : Window
     private void OnContentHostSizeChanged(object sender, SizeChangedEventArgs e) =>
         ContentHost.Clip = new RectangleGeometry(new Rect(e.NewSize), GlassRadius, GlassRadius);
 
-    // ---- Basma geri bildirimi (fare basılır basılmaz, bırakınca yaylanarak geri)
+    // ---- Press feedback (instant on mouse down, springs back on release)
 
     private System.Windows.Controls.ListBoxItem? _pressed;
     private readonly Dictionary<System.Windows.Controls.ListBoxItem, Spring> _pressSprings = new();
@@ -186,11 +193,11 @@ public partial class SearchWindow : Window
         return spring;
     }
 
-    // ---- Cam
+    // ---- Glass
 
     private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e) => UpdateGlass();
 
-    /// <summary>Kenar kırılması camın gerçek boyutuna göre hesaplanır; sonuç listesi büyüdükçe yenilenir.</summary>
+    /// <summary>Edge refraction is computed for the real size of the glass and refreshed as the result list grows.</summary>
     private void UpdateGlass()
     {
         if (_backdrop == null) return;
@@ -203,35 +210,33 @@ public partial class SearchWindow : Window
         };
     }
 
-    // ---- Tema (Windows açık/koyu moduna uyar)
+    // ---- Appearance (Light / Dark / follow Windows) and language
 
-    private static bool IsDarkTheme()
+    private void ApplyAppearance()
     {
-        using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-        return key?.GetValue("AppsUseLightTheme") is int v && v == 0;
-    }
-
-    private void ApplyTheme()
-    {
-        bool dark = IsDarkTheme();
+        bool dark = AppSettings.Current.IsDark;
         Resources["Fg"] = new SolidColorBrush(dark ? Colors.White : Color.FromRgb(0x1C, 0x1C, 0x1E));
         Resources["FgDim"] = new SolidColorBrush(dark ? Color.FromArgb(0xA6, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x99, 0x3C, 0x3C, 0x43));
-        // Liquid Glass tonu: arkası belirgin görünecek kadar ince; yazı okunabilirliği için hafif koyu/açık.
-        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x7A, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x8C, 0xF7, 0xF7, 0xFA));
+        // Liquid Glass tint: thin enough to see through, with just enough light/dark for legible text.
+        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x7A, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x9E, 0xF7, 0xF7, 0xFA));
         Resources["Hairline"] = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Resources["Hover"] = new SolidColorBrush(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
+        var placeholder = L.T("Spotlight Search", "Spotlight Araması");
+        Placeholder.Text = placeholder;
+        System.Windows.Automation.AutomationProperties.SetName(Query, placeholder);
     }
 
-    // ---- Arama
+    // ---- Search
 
     private void OnQueryChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
     {
         _fileSearch?.Cancel();
         Placeholder.Visibility = Query.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         var text = Query.Text.Trim();
-        // Süren indirmeler listede kalsın.
+        // Running downloads stay in the list.
         var busy = _items.Where(i => i.IsBusy).ToList();
         _items.Clear();
+        _webRow = null;
         foreach (var b in busy) _items.Add(b);
         var built = BuildResults(text, out bool searchFiles);
         foreach (var item in built) _items.Add(item);
@@ -258,7 +263,7 @@ public partial class SearchWindow : Window
         var list = new List<ResultItem>();
         if (text.Length == 0) return list;
 
-        // 1) Bağlantı: YouTube / Instagram → MP4 / MP3
+        // 1) Link: YouTube / Instagram → MP4 / MP3
         if (Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
         {
             if (Converter.IsSupported(uri))
@@ -269,7 +274,7 @@ public partial class SearchWindow : Window
             }
             list.Add(new ResultItem
             {
-                Title = "Tarayıcıda aç",
+                Title = L.T("Open in browser", "Tarayıcıda aç"),
                 Subtitle = uri.Host,
                 Glyph = "",
                 GlyphBackground = Solid(0x8E, 0x8E, 0x93),
@@ -278,7 +283,7 @@ public partial class SearchWindow : Window
             return list;
         }
 
-        // 2) Disk yolu: dosya → Dosya Gezgini'nde seçili göster, klasör → aç
+        // 2) Disk path: file → select it in File Explorer, folder → open it
         var path = AsPath(text);
         if (path != null)
         {
@@ -286,23 +291,57 @@ public partial class SearchWindow : Window
             return list;
         }
 
-        // 3) Uygulamalar (dosyalar ardından arka planda eklenir)
-        // Uygulamalar ve Windows araçları/ayarları iki bölümde; en iyi sonucu içeren bölüm üstte.
+        // 3) Apps and Windows tools/settings in two sections; the section with the best match comes first.
+        //    Files are added afterwards in the background.
         var found = AppIndex.Search(text, 8);
         var sections = found
             .GroupBy(a => a.Kind == EntryKind.App)
             .Select(g => (apps: g.Key, items: g.Take(5).ToList()));
         foreach (var (isApp, items) in sections)
         {
-            list.Add(Header(isApp ? "Uygulamalar" : "Sistem ve Ayarlar"));
+            list.Add(Header(isApp ? L.T("Applications", "Uygulamalar") : L.T("System & Settings", "Sistem ve Ayarlar")));
             foreach (var app in items) list.Add(AppItem(app));
         }
-        // SPOTLIGHT_DEMO=1: tanıtım ekran görüntülerinde kişisel dosya yolları görünmesin.
+
+        // Spotlight's own settings: "spotlight settings", "theme", "dark mode", "language", "tema", "dil"…
+        var q = Text.Fold(text);
+        string[] settingsWords = { "settings", "ayarlar", "spotlight settings", "spotlight ayarlari", "preferences", "tercihler", "theme", "tema", "dark mode", "light mode", "karanlik", "language", "dil " };
+        if (q.Length >= 3 && settingsWords.Any(w => w.StartsWith(q) || q == w.Trim()))
+        {
+            list.Add(Header("Spotlight"));
+            list.Add(new ResultItem
+            {
+                Title = L.T("Spotlight Settings", "Spotlight Ayarları"),
+                Subtitle = L.T("Theme, language and web search", "Tema, dil ve web araması"),
+                Glyph = "",
+                GlyphBackground = Solid(0x5E, 0x5C, 0xE6),
+                Run = _ => { SettingsWindow.Open(HotkeyText); return Task.FromResult(false); },
+            });
+        }
+
+        // 4) Always last: search the web in the default browser. When nothing else matches, it is the top hit.
+        _webRow = WebItem(text);
+        list.Add(_webRow);
+
+        // SPOTLIGHT_DEMO=1: keep personal file paths out of promotional screenshots.
         searchFiles = text.Length >= 2 && Environment.GetEnvironmentVariable("SPOTLIGHT_DEMO") != "1";
         return list;
     }
 
-    /// <summary>Dosya ve klasörleri arka planda arar; kısa bir beklemeyle yazarken gereksiz aramaları atlar.</summary>
+    private ResultItem WebItem(string text)
+    {
+        var s = AppSettings.Current;
+        return new ResultItem
+        {
+            Title = L.T($"Search the web for \"{text}\"", $"\"{text}\" için webde ara"),
+            Subtitle = L.T($"{s.WebSearchName} · opens in your default browser", $"{s.WebSearchName} · varsayılan tarayıcında açılır"),
+            Glyph = "",
+            GlyphBackground = Solid(0x0A, 0x84, 0xFF),
+            Run = _ => { Open(s.WebSearchUrl(text)); return Task.FromResult(false); },
+        };
+    }
+
+    /// <summary>Searches files and folders in the background; a short delay skips needless searches while typing.</summary>
     private async void SearchFilesAsync(string text)
     {
         var cts = _fileSearch = new CancellationTokenSource();
@@ -315,16 +354,24 @@ public partial class SearchWindow : Window
             var rows = new List<ResultItem>();
             if (hits.Count > 0)
             {
-                rows.Add(Header("Dosyalar ve Klasörler"));
+                rows.Add(Header(L.T("Files & Folders", "Dosyalar ve Klasörler")));
                 rows.AddRange(hits.Select(FileItem));
             }
             else if (!FileIndex.IsReady)
             {
-                rows.Add(Header(FileIndex.IsScanning ? "Dosyalar dizinleniyor… (ilk tarama birkaç dakika sürer)" : "Dosya dizini hazırlanıyor…"));
+                rows.Add(Header(FileIndex.IsScanning
+                    ? L.T("Indexing files… (the first scan takes a few minutes)", "Dosyalar dizinleniyor… (ilk tarama birkaç dakika sürer)")
+                    : L.T("Preparing the file index…", "Dosya dizini hazırlanıyor…")));
             }
             if (rows.Count == 0) return;
-            foreach (var row in rows) _items.Add(row);
-            RefreshList(selectFirst: false);
+
+            // Files go above the web search row, which always stays last.
+            int at = _webRow != null && _items.Contains(_webRow) ? _items.IndexOf(_webRow) : _items.Count;
+            foreach (var row in rows) _items.Insert(at++, row);
+
+            // If the web row was selected only because nothing else matched yet, move to the first file.
+            bool webWasTopHit = Results.SelectedItem == _webRow && hits.Count > 0;
+            RefreshList(selectFirst: webWasTopHit);
         }
         catch (OperationCanceledException) { }
         catch { }
@@ -336,16 +383,17 @@ public partial class SearchWindow : Window
     {
         var kind = app.Kind switch
         {
-            EntryKind.Tool => "Windows aracı",
-            EntryKind.Setting => "Ayarlar",
-            EntryKind.Folder => "Klasör",
-            _ => "Uygulama",
+            EntryKind.Tool => L.T("Windows tool", "Windows aracı"),
+            EntryKind.Setting => L.T("Settings", "Ayarlar"),
+            EntryKind.Folder => L.T("Folder", "Klasör"),
+            _ => L.T("Application", "Uygulama"),
         };
+        var alt = app.AltDisplayName;
         return new ResultItem
         {
-            Title = app.Name,
-            // Diğer dildeki adı da göster: "Windows aracı · Device Manager"
-            Subtitle = app.AltName != null ? $"{kind} · {app.AltName}" : kind,
+            Title = app.DisplayName,
+            // Also show the name in the other language: "Windows tool · Aygıt Yöneticisi"
+            Subtitle = alt != null ? $"{kind} · {alt}" : kind,
             App = app,
             Icon = app.Icon,
             Glyph = app.Kind switch { EntryKind.Setting => "", EntryKind.Folder => "", _ => "" },
@@ -362,11 +410,11 @@ public partial class SearchWindow : Window
         return new ResultItem
         {
             Title = name.Length > 0 ? name : path,
-            // macOS'taki gibi: adın altında nereden açıldığı (bulunduğu klasör).
+            // Like macOS: where it lives, under its name.
             Subtitle = folder,
             FilePath = path,
-            Hint = "Ctrl+Enter · Konumu göster",
-            // Simge yüklenene kadar (ya da yüklenemezse) gri belge/klasör sembolü.
+            Hint = L.T("Ctrl+Enter · Show in folder", "Ctrl+Enter · Konumu göster"),
+            // Grey document/folder symbol until the icon loads (or if it cannot).
             Glyph = hit.IsDirectory ? "" : "",
             GlyphBackground = Solid(0x8E, 0x8E, 0x93),
             Icon = IconCache.TryGetValue(path, out var cached) ? cached : null,
@@ -387,7 +435,7 @@ public partial class SearchWindow : Window
         return dir;
     }
 
-    /// <summary>Metin bir disk yolu gibi görünüyorsa normalleştirilmiş yolu döndürür.</summary>
+    /// <summary>If the text looks like a disk path, returns it normalised.</summary>
     private static string? AsPath(string text)
     {
         var t = text.Trim().Trim('"', '\'');
@@ -405,7 +453,7 @@ public partial class SearchWindow : Window
             return new ResultItem
             {
                 Title = Path.GetFileName(path),
-                Subtitle = "Dosya Gezgini'nde göster · " + Path.GetDirectoryName(path),
+                Subtitle = L.T("Show in File Explorer · ", "Dosya Gezgini'nde göster · ") + Path.GetDirectoryName(path),
                 Icon = Native.ShellIcon(path, 64),
                 Run = _ => { Explorer($"/select,\"{path}\""); return Task.FromResult(false); },
             };
@@ -415,17 +463,17 @@ public partial class SearchWindow : Window
             return new ResultItem
             {
                 Title = new DirectoryInfo(path).Name is { Length: > 0 } n ? n : path,
-                Subtitle = "Dosya Gezgini'nde aç · " + path,
+                Subtitle = L.T("Open in File Explorer · ", "Dosya Gezgini'nde aç · ") + path,
                 Icon = Native.ShellIcon(path, 64),
                 Run = _ => { Explorer($"\"{path}\""); return Task.FromResult(false); },
             };
         }
-        // Bulunamadı: varsa üst klasörü aç.
+        // Not found: open the nearest folder that exists, if any.
         var parent = FirstExisting(Path.GetDirectoryName(path));
         return new ResultItem
         {
-            Title = "Bulunamadı",
-            Subtitle = parent != null ? $"Var olan en yakın klasörü aç · {parent}" : path,
+            Title = L.T("Not found", "Bulunamadı"),
+            Subtitle = parent != null ? L.T($"Open the nearest existing folder · {parent}", $"Var olan en yakın klasörü aç · {parent}") : path,
             Glyph = "",
             GlyphBackground = Solid(0xFF, 0x45, 0x3A),
             Run = parent == null ? null : _ => { Explorer($"\"{parent}\""); return Task.FromResult(false); },
@@ -434,8 +482,8 @@ public partial class SearchWindow : Window
 
     private ResultItem DownloadItem(string url, bool audio, string site) => new()
     {
-        Title = audio ? "MP3 olarak indir" : "MP4 olarak indir",
-        Subtitle = $"{site} · {(audio ? "yalnızca ses" : "video")} · İndirilenler\\Spotlight",
+        Title = audio ? L.T("Download as MP3", "MP3 olarak indir") : L.T("Download as MP4", "MP4 olarak indir"),
+        Subtitle = $"{site} · {(audio ? L.T("audio only", "yalnızca ses") : "video")} · {L.T("Downloads", "İndirilenler")}\\Spotlight",
         Glyph = audio ? "" : "",
         GlyphBackground = audio ? Solid(0xFF, 0x2D, 0x55) : Solid(0xFF, 0x9F, 0x0A),
         Run = row => StartDownload(row, url, audio),
@@ -455,24 +503,24 @@ public partial class SearchWindow : Window
         {
             var file = await Converter.DownloadAsync(url, audio, progress);
             row.Progress = -1;
-            row.Title = "İndirildi: " + Path.GetFileName(file);
-            row.Subtitle = "Dosya Gezgini'nde göstermek için Enter";
+            row.Title = L.T("Downloaded: ", "İndirildi: ") + Path.GetFileName(file);
+            row.Subtitle = L.T("Press Enter to show it in File Explorer", "Dosya Gezgini'nde göstermek için Enter");
             row.IsBusy = false;
-            Notify?.Invoke("İndirme tamamlandı", Path.GetFileName(file), file);
+            Notify?.Invoke(L.T("Download complete", "İndirme tamamlandı"), Path.GetFileName(file), file);
             ReplaceRun(row, file);
         }
         catch (Exception ex)
         {
             row.Progress = -1;
             row.IsBusy = false;
-            row.Title = "İndirilemedi";
+            row.Title = L.T("Download failed", "İndirilemedi");
             row.Subtitle = ex.Message;
-            Notify?.Invoke("İndirilemedi", ex.Message, null);
+            Notify?.Invoke(L.T("Download failed", "İndirilemedi"), ex.Message, null);
         }
         return true;
     }
 
-    /// <summary>Biten indirme satırı: Enter → dosyayı Dosya Gezgini'nde seçili göster.</summary>
+    /// <summary>A finished download row: Enter → select the file in File Explorer.</summary>
     private void ReplaceRun(ResultItem row, string file)
     {
         var index = _items.IndexOf(row);
@@ -489,7 +537,7 @@ public partial class SearchWindow : Window
         Results.SelectedIndex = index;
     }
 
-    /// <summary>Görünen satırların simgelerini arka planda yükler (önbelleğe alır).</summary>
+    /// <summary>Loads icons for the visible rows in the background (and caches them).</summary>
     private void LoadIconsAsync()
     {
         var ui = TaskScheduler.FromCurrentSynchronizationContext();
@@ -498,7 +546,7 @@ public partial class SearchWindow : Window
             if (row.App is { } app)
             {
                 if (app.Icon != null) { row.Icon = app.Icon; continue; }
-                if (app.IconPath == null) continue; // simge yoksa renkli sembol kalır
+                if (app.IconPath == null) continue; // no icon: the coloured symbol stays
                 Native.ShellIconAsync(app.IconPath, 64).ContinueWith(t =>
                 {
                     if (t.Result == null) return;
@@ -518,7 +566,7 @@ public partial class SearchWindow : Window
         }
     }
 
-    // ---- Klavye ve fare
+    // ---- Keyboard and mouse
 
     private void OnQueryKeyDown(object sender, KeyEventArgs e)
     {
@@ -539,7 +587,7 @@ public partial class SearchWindow : Window
             case Key.Enter:
                 if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && Results.SelectedItem is ResultItem { FilePath: { } p })
                 {
-                    // Ctrl+Enter: dosyanın konumunu Dosya Gezgini'nde seçili göster (macOS'ta ⌘↵).
+                    // Ctrl+Enter: select the file in File Explorer (⌘↵ on macOS).
                     Explorer(File.Exists(p) || Directory.Exists(p) ? $"/select,\"{p}\"" : $"\"{FirstExisting(Path.GetDirectoryName(p))}\"");
                     HideSpotlight();
                 }
@@ -575,7 +623,7 @@ public partial class SearchWindow : Window
         }
     }
 
-    // ---- Yardımcılar
+    // ---- Helpers
 
     private static SolidColorBrush Solid(byte r, byte g, byte b)
     {

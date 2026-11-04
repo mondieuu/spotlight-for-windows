@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace Odak;
 
-/// <summary>Arama listesindeki bir satır: uygulama, dosya yolu ya da indirme eylemi.</summary>
+/// <summary>A row in the search list: an app, a file path or a download action.</summary>
 public sealed class ResultItem : INotifyPropertyChanged
 {
     private string _title = "";
@@ -18,7 +18,7 @@ public sealed class ResultItem : INotifyPropertyChanged
     public string Title { get => _title; set => Set(ref _title, value); }
     public string Subtitle { get => _subtitle; set => Set(ref _subtitle, value); }
 
-    /// <summary>Uygulama simgesi; yoksa <see cref="Glyph"/> (Segoe Fluent Icons) gösterilir.</summary>
+    /// <summary>App icon; if missing, <see cref="Glyph"/> (Segoe Fluent Icons) is shown.</summary>
     public ImageSource? Icon
     {
         get => _icon;
@@ -26,10 +26,10 @@ public sealed class ResultItem : INotifyPropertyChanged
     }
 
     public string Glyph { get; init; } = "";
-    /// <summary>Sembol arka planının rengi (iOS tarzı renkli kare).</summary>
+    /// <summary>Background colour of the symbol (an iOS-style coloured square).</summary>
     public Brush GlyphBackground { get; init; } = new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF));
 
-    /// <summary>İlerleme 0..1; -1 = çubuk gizli.</summary>
+    /// <summary>Progress 0..1; -1 = bar hidden.</summary>
     public double Progress
     {
         get => _progress;
@@ -40,19 +40,19 @@ public sealed class ResultItem : INotifyPropertyChanged
     public Visibility GlyphVisibility => Icon == null ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ProgressVisibility => Progress >= 0 ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Enter'a basılınca çalışır. true dönerse pencere açık kalır (ör. indirme sürerken).</summary>
+    /// <summary>Runs when Enter is pressed. If it returns true, the window stays open (e.g. while a download runs).</summary>
     public Func<ResultItem, Task<bool>>? Run { get; init; }
 
     public AppEntry? App { get; init; }
 
-    /// <summary>Bölüm başlığı satırı ("Uygulamalar", "Dosyalar ve Klasörler"); seçilemez.</summary>
+    /// <summary>Section header row ("Applications", "Files and Folders"); not selectable.</summary>
     public bool IsHeader { get; init; }
     public Visibility HeaderVisibility => IsHeader ? Visibility.Visible : Visibility.Collapsed;
     public Visibility RowVisibility => IsHeader ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>Dosya/klasör sonucuysa tam yolu (Ctrl+Enter → konumu göster).</summary>
+    /// <summary>Full path, if this is a file/folder result (Ctrl+Enter → show its location).</summary>
     public string? FilePath { get; init; }
-    /// <summary>Seçili satırın sağında görünen kısayol ipucu.</summary>
+    /// <summary>Shortcut hint shown on the right of the selected row.</summary>
     public string Hint { get; init; } = "";
     public bool IsBusy { get; set; }
 

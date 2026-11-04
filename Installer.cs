@@ -7,21 +7,21 @@ using Microsoft.Win32;
 namespace Odak;
 
 /// <summary>
-/// Kurulum ve iz bırakmadan kaldırma. Yönetici izni gerekmez: her şey yalnızca bu kullanıcıya kurulur.
+/// Setup and trace-free uninstall. No admin rights needed: everything is installed for the current user only.
 ///
-/// Kurulumun dokunduğu yerlerin TAMAMI (kaldırırken hepsi silinir):
-///   • %LOCALAPPDATA%\Programs\Spotlight\            → program
-///   • %LOCALAPPDATA%\Spotlight\                     → dosya dizini, kullanım sayıları, yt-dlp/ffmpeg
-///   • %TEMP%\.net\Spotlight\                        → .NET'in tek dosyalı uygulama önbelleği
-///   • Başlat menüsü ve (seçildiyse) masaüstü kısayolu
-///   • HKCU\...\Run\Spotlight                        → "Windows ile başlat"
-///   • HKCU\...\Uninstall\Spotlight                  → Ayarlar &gt; Uygulamalar kaydı
-///   • (isteğe bağlı) İndirilenler\Spotlight          → kullanıcının indirdiği MP3/MP4'ler
+/// EVERY location setup touches (all of them are removed on uninstall):
+///   • %LOCALAPPDATA%\Programs\Spotlight\            → the program
+///   • %LOCALAPPDATA%\Spotlight\                     → file index, usage counts, yt-dlp/ffmpeg
+///   • %TEMP%\.net\Spotlight\                        → .NET single-file app cache
+///   • Start menu and (if chosen) desktop shortcuts
+///   • HKCU\...\Run\Spotlight                        → "Start with Windows"
+///   • HKCU\...\Uninstall\Spotlight                  → Settings &gt; Apps entry
+///   • (optional) Downloads\Spotlight                 → MP3/MP4 files the user downloaded
 /// </summary>
 public static class Installer
 {
     public const string AppName = "Spotlight";
-    public const string Version = "1.0.0";
+    public const string Version = "1.1.0";
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Spotlight";
 
@@ -34,13 +34,13 @@ public static class Installer
     private static string StartMenuLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), AppName + ".lnk");
     private static string DesktopLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), AppName + ".lnk");
 
-    /// <summary>Kurulum dosyası olarak mı çalıştırıldı ("SpotlightSetup.exe").</summary>
+    /// <summary>Whether it was launched as the setup file ("SpotlightSetup.exe").</summary>
     public static bool IsSetupExe =>
         Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "").Contains("Setup", StringComparison.OrdinalIgnoreCase);
 
     public static bool IsInstalled => File.Exists(InstalledExe);
 
-    /// <summary>Programı kopyalar, kısayolları ve "Uygulamalar" kaydını oluşturur.</summary>
+    /// <summary>Copies the program and creates the shortcuts and the "Apps" entry.</summary>
     public static void Install(bool startWithWindows, bool desktopShortcut)
     {
         StopOtherInstances();
@@ -71,11 +71,11 @@ public static class Installer
         key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
     }
 
-    /// <summary>Kurulu Spotlight'ı başlatır.</summary>
+    /// <summary>Launches the installed Spotlight.</summary>
     public static void LaunchInstalled() =>
         Process.Start(new ProcessStartInfo(InstalledExe, "--open") { UseShellExecute = true, WorkingDirectory = InstallDir });
 
-    /// <summary>Her şeyi siler. Program klasörü, bu işlem kapandıktan sonra gizli bir komutla silinir.</summary>
+    /// <summary>Removes everything. The program folder is deleted by a hidden command after this process exits.</summary>
     public static void Uninstall(bool deleteDownloads)
     {
         StopOtherInstances();
@@ -90,8 +90,8 @@ public static class Installer
         TryDeleteDir(LegacyDataDir);
         if (deleteDownloads) TryDeleteDir(Converter.OutputDir);
 
-        // Çalışan exe kendini silemez: gizli bir PowerShell bu işlem kapanana kadar bekler (pencere ne kadar
-        // açık kalırsa kalsın), sonra program klasörünü ve .NET önbelleğini siler.
+        // A running exe cannot delete itself: a hidden PowerShell waits until this process exits (however long
+        // the window stays open), then deletes the program folder and the .NET cache.
         var targets = new[] { InstallDir, BundleCache, SetupBundleCache };
         var list = string.Join(",", targets.Select(t => "'" + t.Replace("'", "''") + "'"));
         var script =
@@ -111,7 +111,7 @@ public static class Installer
     private static bool IsInstalledCopy() =>
         string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Açık Spotlight'ları kapatır (bu işlem hariç).</summary>
+    /// <summary>Closes running Spotlight instances (except this process).</summary>
     private static void StopOtherInstances()
     {
         int me = Environment.ProcessId;
@@ -138,7 +138,7 @@ public static class Installer
         shortcut.Arguments = args;
         shortcut.WorkingDirectory = Path.GetDirectoryName(target);
         shortcut.IconLocation = target + ",0";
-        shortcut.Description = "Uygulamaları, dosyaları ve Windows ayarlarını ara";
+        shortcut.Description = "Search apps, files and Windows settings";
         shortcut.Save();
     }
 

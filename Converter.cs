@@ -14,8 +14,8 @@ using System.Threading.Tasks;
 namespace Odak;
 
 /// <summary>
-/// YouTube ve Instagram bağlantılarını MP3/MP4 olarak indirir. Açık kaynaklı yt-dlp ve ffmpeg
-/// kullanır; ikisi de ilk kullanımda resmi GitHub sürümlerinden %LOCALAPPDATA%\Odak\tools klasörüne indirilir.
+/// Downloads YouTube and Instagram links as MP3/MP4. Uses the open-source yt-dlp and ffmpeg;
+/// both are downloaded on first use from their official GitHub releases into %LOCALAPPDATA%\Odak\tools.
 /// </summary>
 public static class Converter
 {
@@ -39,14 +39,14 @@ public static class Converter
         return http;
     }
 
-    /// <summary>Desteklenen site mi? (YouTube, YouTube Music, Shorts, Instagram)</summary>
+    /// <summary>Is this a supported site? (YouTube, YouTube Music, Shorts, Instagram)</summary>
     public static bool IsSupported(Uri uri)
     {
         var host = uri.Host.ToLowerInvariant();
         return host == "youtu.be" || host.EndsWith("youtube.com") || host.EndsWith("instagram.com");
     }
 
-    /// <summary>İndirir ve dönüştürür; bittiğinde dosyanın tam yolunu döndürür.</summary>
+    /// <summary>Downloads and converts; returns the file's full path when done.</summary>
     public static async Task<string> DownloadAsync(string url, bool audio, IProgress<(double fraction, string status)> progress, CancellationToken ct = default)
     {
         await EnsureToolsAsync(progress, ct);
@@ -63,7 +63,7 @@ public static class Converter
         if (audio)
             args.AddRange(new[] { "-x", "--audio-format", "mp3", "--audio-quality", "0" });
         else
-            // Her oynatıcıda açılsın diye H.264 + AAC tercih edilir.
+            // H.264 + AAC is preferred so the file plays in any player.
             args.AddRange(new[] { "-f", "bv*[vcodec^=avc1]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b", "--merge-output-format", "mp4" });
         args.Add(url);
 
@@ -79,20 +79,20 @@ public static class Converter
         psi.Environment["PYTHONIOENCODING"] = "utf-8";
         foreach (var a in args) psi.ArgumentList.Add(a);
 
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Dönüştürücü başlatılamadı.");
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException(L.T("Could not start the converter.", "Dönüştürücü başlatılamadı."));
         string? outputPath = null;
         var errors = new StringBuilder();
         proc.ErrorDataReceived += (_, e) => { if (e.Data != null) errors.AppendLine(e.Data); };
         proc.BeginErrorReadLine();
 
-        progress.Report((0, "Bağlantı hazırlanıyor…"));
+        progress.Report((0, L.T("Preparing the link…", "Bağlantı hazırlanıyor…")));
         while (await proc.StandardOutput.ReadLineAsync(ct) is { } line)
         {
             var m = ProgressRx.Match(line);
             if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var pct))
-                progress.Report((pct / 100.0 * 0.95, $"İndiriliyor… %{pct:0}"));
+                progress.Report((pct / 100.0 * 0.95, L.T($"Downloading… {pct:0}%", $"İndiriliyor… %{pct:0}")));
             else if (line.StartsWith("[ExtractAudio]") || line.StartsWith("[Merger]") || line.StartsWith("[Metadata]"))
-                progress.Report((0.97, audio ? "MP3'e dönüştürülüyor…" : "MP4 hazırlanıyor…"));
+                progress.Report((0.97, audio ? L.T("Converting to MP3…", "MP3'e dönüştürülüyor…") : L.T("Preparing MP4…", "MP4 hazırlanıyor…")));
             else if (line.Length > 3 && Path.IsPathRooted(line.Trim()) && File.Exists(line.Trim()))
                 outputPath = line.Trim();
         }
@@ -105,7 +105,7 @@ public static class Converter
         return outputPath ?? OutputDir;
     }
 
-    /// <summary>yt-dlp ve ffmpeg yoksa indirir; yt-dlp haftada bir kendini günceller (siteler sık değişir).</summary>
+    /// <summary>Downloads yt-dlp and ffmpeg if missing; yt-dlp updates itself weekly (the sites change often).</summary>
     private static async Task EnsureToolsAsync(IProgress<(double, string)> progress, CancellationToken ct)
     {
         await ToolsLock.WaitAsync(ct);
@@ -114,25 +114,25 @@ public static class Converter
             Directory.CreateDirectory(ToolsDir);
             if (!File.Exists(YtDlp))
             {
-                await DownloadFileAsync(YtDlpUrl, YtDlp, f => progress.Report((f * 0.2, $"Dönüştürücü indiriliyor (1/2)… %{f * 100:0}")), ct);
+                await DownloadFileAsync(YtDlpUrl, YtDlp, f => progress.Report((f * 0.2, L.T($"Downloading the converter (1/2)… {f * 100:0}%", $"Dönüştürücü indiriliyor (1/2)… %{f * 100:0}"))), ct);
             }
             else if (DateTime.Now - File.GetLastWriteTime(YtDlp) > TimeSpan.FromDays(7))
             {
-                progress.Report((0, "Dönüştürücü güncelleniyor…"));
+                progress.Report((0, L.T("Updating the converter…", "Dönüştürücü güncelleniyor…")));
                 try
                 {
                     using var up = Process.Start(new ProcessStartInfo(YtDlp, "-U") { UseShellExecute = false, CreateNoWindow = true });
                     if (up != null) await up.WaitForExitAsync(ct);
                     File.SetLastWriteTime(YtDlp, DateTime.Now);
                 }
-                catch { /* güncellenemezse mevcut sürümle devam */ }
+                catch { /* if the update fails, continue with the current version */ }
             }
 
             if (!File.Exists(Ffmpeg))
             {
                 var zip = Path.Combine(Path.GetTempPath(), "odak-ffmpeg.zip");
-                await DownloadFileAsync(FfmpegUrl, zip, f => progress.Report((0.2 + f * 0.6, $"Ses/video bileşeni indiriliyor (2/2)… %{f * 100:0}")), ct);
-                progress.Report((0.8, "Bileşenler kuruluyor…"));
+                await DownloadFileAsync(FfmpegUrl, zip, f => progress.Report((0.2 + f * 0.6, L.T($"Downloading the audio/video component (2/2)… {f * 100:0}%", $"Ses/video bileşeni indiriliyor (2/2)… %{f * 100:0}"))), ct);
+                progress.Report((0.8, L.T("Installing components…", "Bileşenler kuruluyor…")));
                 await Task.Run(() =>
                 {
                     using var archive = ZipFile.OpenRead(zip);

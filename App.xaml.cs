@@ -9,8 +9,8 @@ using Forms = System.Windows.Forms;
 namespace Odak;
 
 /// <summary>
-/// Odak arka planda çalışır: tepside simgesi durur, Alt+Boşluk ile arama penceresi açılır.
-/// Tek kopya çalışır; ikinci kez başlatılırsa açık olan kopya kalır.
+/// Odak runs in the background: its icon sits in the tray, and Alt+Space opens the search window.
+/// Only one instance runs; if launched again, the instance already running stays.
 /// </summary>
 public partial class App : Application
 {
@@ -24,7 +24,7 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Kaldırma (Ayarlar › Uygulamalar ya da tepsi menüsü) ve kurulum ("SpotlightSetup.exe") modları.
+        // Uninstall (Settings › Apps or the tray menu) and setup ("SpotlightSetup.exe") modes.
         if (e.Args.Contains("--uninstall"))
         {
             if (e.Args.Contains("--quiet"))
@@ -54,8 +54,10 @@ public partial class App : Application
         _window.Notify = ShowNotification;
         CreateTray();
 
-        // İlk açılışta kısayolu hatırlatmak için bir kez göster.
+        // Show once on first launch as a reminder of the shortcut.
         if (!e.Args.Contains("--tray")) _window.ShowSpotlight();
+        // --settings: open the Settings window directly (e.g. from a shortcut).
+        if (e.Args.Contains("--settings")) SettingsWindow.Open(_window.HotkeyText);
     }
 
     private void ShowSetup(bool uninstall)
@@ -82,24 +84,35 @@ public partial class App : Application
                 Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_lastFile}\"") { UseShellExecute = true });
         };
 
+        BuildMenu();
+        // Rebuild the menu when the language changes in Settings.
+        AppSettings.Changed += () => Dispatcher.Invoke(BuildMenu);
+    }
+
+    private void BuildMenu()
+    {
+        if (_tray == null || _window == null) return;
         var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add($"Aç ({_window.HotkeyText})", null, (_, _) => _window.ShowSpotlight());
-        menu.Items.Add("İndirilenler klasörü", null, (_, _) =>
+        menu.Items.Add(L.T($"Open ({_window.HotkeyText})", $"Aç ({_window.HotkeyText})"), null, (_, _) => _window.ShowSpotlight());
+        menu.Items.Add(L.T("Settings…", "Ayarlar…"), null, (_, _) => SettingsWindow.Open(_window.HotkeyText));
+        menu.Items.Add(L.T("Downloads folder", "İndirilenler klasörü"), null, (_, _) =>
         {
             Directory.CreateDirectory(Converter.OutputDir);
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{Converter.OutputDir}\"") { UseShellExecute = true });
         });
-        var startup = new Forms.ToolStripMenuItem("Windows ile başlat") { Checked = IsStartupEnabled(), CheckOnClick = true };
+        var startup = new Forms.ToolStripMenuItem(L.T("Start with Windows", "Windows ile başlat")) { Checked = IsStartupEnabled(), CheckOnClick = true };
         startup.CheckedChanged += (_, _) => SetStartup(startup.Checked);
         menu.Items.Add(startup);
         menu.Items.Add(new Forms.ToolStripSeparator());
         if (Installer.IsInstalled)
         {
-            menu.Items.Add("Spotlight'ı kaldır…", null, (_, _) =>
+            menu.Items.Add(L.T("Uninstall Spotlight…", "Spotlight'ı kaldır…"), null, (_, _) =>
                 Process.Start(new ProcessStartInfo(Installer.InstalledExe, "--uninstall") { UseShellExecute = true }));
         }
-        menu.Items.Add("Çıkış", null, (_, _) => Quit());
+        menu.Items.Add(L.T("Quit", "Çıkış"), null, (_, _) => Quit());
+        var old = _tray.ContextMenuStrip;
         _tray.ContextMenuStrip = menu;
+        old?.Dispose();
     }
 
     private void ShowNotification(string title, string text, string? file)
@@ -108,15 +121,15 @@ public partial class App : Application
         _tray?.ShowBalloonTip(4000, title, text, file != null ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
     }
 
-    // ---- "Windows ile başlat" (yalnızca bu kullanıcı için, HKCU\...\Run)
+    // ---- "Start with Windows" (current user only, HKCU\...\Run)
 
-    private static bool IsStartupEnabled()
+    internal static bool IsStartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
         return key?.GetValue("Spotlight") != null;
     }
 
-    private static void SetStartup(bool enabled)
+    internal static void SetStartup(bool enabled)
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
         if (key == null) return;

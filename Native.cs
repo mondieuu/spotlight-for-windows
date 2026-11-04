@@ -7,10 +7,10 @@ using System.Windows.Media.Imaging;
 
 namespace Odak;
 
-/// <summary>Windows API: genel kısayol tuşu ve kabuk simgeleri.</summary>
+/// <summary>Windows API: global hotkey and shell icons.</summary>
 internal static class Native
 {
-    // ---- Genel kısayol tuşu
+    // ---- Global hotkey
     public const int WM_HOTKEY = 0x0312;
     public const uint MOD_ALT = 0x1, MOD_CONTROL = 0x2, MOD_NOREPEAT = 0x4000;
     public const uint VK_SPACE = 0x20;
@@ -24,7 +24,7 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    // ---- Kabuk simgeleri (Başlat menüsündeki uygulamaların gerçek simgeleri)
+    // ---- Shell icons (the real icons of Start menu apps)
     [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellItemImageFactory
     {
@@ -53,7 +53,7 @@ internal static class Native
 
     private const int SIIGBF_ICONONLY = 0x4;
 
-    // Kabuk simgeleri STA iş parçacığında güvenilir çalışır; tek bir arka plan STA kuyruğu kullanılır.
+    // Shell icons work reliably on an STA thread; a single background STA queue is used.
     private static readonly System.Collections.Concurrent.BlockingCollection<(string path, int px, System.Threading.Tasks.TaskCompletionSource<BitmapSource?> tcs)> IconQueue = StartIconThread();
 
     private static System.Collections.Concurrent.BlockingCollection<(string, int, System.Threading.Tasks.TaskCompletionSource<BitmapSource?>)> StartIconThread()
@@ -73,7 +73,7 @@ internal static class Native
         return queue;
     }
 
-    /// <summary>Simgeyi arka plandaki STA iş parçacığında yükler.</summary>
+    /// <summary>Loads the icon on the background STA thread.</summary>
     public static System.Threading.Tasks.Task<BitmapSource?> ShellIconAsync(string parsingName, int px)
     {
         var tcs = new System.Threading.Tasks.TaskCompletionSource<BitmapSource?>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
@@ -81,7 +81,7 @@ internal static class Native
         return tcs.Task;
     }
 
-    /// <summary>Kabuk öğesinin simgesini saydamlığı koruyarak döndürür (null = bulunamadı).</summary>
+    /// <summary>Returns the shell item's icon with transparency preserved (null = not found).</summary>
     public static BitmapSource? ShellIcon(string parsingName, int px)
     {
         var iid = typeof(IShellItemImageFactory).GUID;
@@ -103,7 +103,7 @@ internal static class Native
                 Marshal.Copy(bmp.bmBits, buffer, 0, buffer.Length);
                 if (bmp.bmHeight > 0)
                 {
-                    // Alttan üste DIB: satırları çevir.
+                    // Bottom-up DIB: flip the rows.
                     var flipped = new byte[buffer.Length];
                     for (int y = 0; y < h; y++) Buffer.BlockCopy(buffer, y * stride, flipped, (h - 1 - y) * stride, stride);
                     buffer = flipped;
