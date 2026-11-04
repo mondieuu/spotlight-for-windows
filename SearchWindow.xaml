@@ -110,7 +110,7 @@
         </Border>
 
         <!-- Blurred screen capture with refracted edges (refreshed in code on every open) -->
-        <Border x:Name="Glass" CornerRadius="28" Background="#FF2A2A2E" SizeChanged="OnGlassSizeChanged" />
+        <Border x:Name="Glass" CornerRadius="28" Background="Transparent" SizeChanged="OnGlassSizeChanged" />
 
         <!-- Tint -->
         <Border CornerRadius="28" Background="{DynamicResource Tint}" />

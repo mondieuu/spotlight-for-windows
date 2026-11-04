@@ -191,8 +191,11 @@ public partial class SearchWindow : Window
             (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
         _captureScale = scale;
         _backdrop = CaptureBehind();
-        _height.Snap(ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68);
-        UpdateGlass();
+        double startHeight = ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68;
+        _height.Snap(startHeight);
+        _renderVersion++;
+        if (_backdrop != null) SetGlass(_backdrop.Render(GlassWidth, startHeight, GlassRadius));
+        else Glass.Background = Brushes.Transparent;
         _closing = false;
         _open.Snap(0);
         Show();
@@ -226,8 +229,16 @@ public partial class SearchWindow : Window
     private void OnContentSizeChanged(object sender, SizeChangedEventArgs e)
     {
         double target = e.NewSize.Height;
-        if (!IsVisible || ReduceMotion) _height.Snap(target);
-        else _height.To(target, 0.35, 1.0);
+        if (!IsVisible || ReduceMotion)
+        {
+            _height.Snap(target);
+            RequestGlass(target);
+            return;
+        }
+        // While the panel springs to its new height, the glass is rendered for the taller of the two heights,
+        // so it always covers the panel; once the spring settles it is rendered once more for the exact height.
+        RequestGlass(Math.Max(target, Glass.ActualHeight));
+        _height.To(target, 0.35, 1.0, settled: () => RequestGlass(target));
     }
 
     private void OnContentHostSizeChanged(object sender, SizeChangedEventArgs e) =>
@@ -267,20 +278,24 @@ public partial class SearchWindow : Window
 
     private System.Drawing.Rectangle _captureRect;
     private double _captureScale = 1;
-    private volatile float _glassHeight = 68;
+    private int _renderVersion;
 
-    private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e)
-    {
-        _glassHeight = (float)e.NewSize.Height;
-        UpdateGlass();
-    }
+    private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e) { }
 
-    /// <summary>Edge refraction is computed for the real size of the glass and refreshed as the result list grows.</summary>
-    private void UpdateGlass()
+    /// <summary>
+    /// Renders the refracted glass for the given height on a background thread; only the newest request is
+    /// applied. Nothing heavy runs on the UI thread, so typing and the spring animation stay smooth.
+    /// </summary>
+    private void RequestGlass(double heightDip)
     {
-        if (_backdrop == null) return;
-        double h = Glass.ActualHeight > 0 ? Glass.ActualHeight : 68;
-        SetGlass(_backdrop.Render(GlassWidth, h, GlassRadius));
+        var backdrop = _backdrop;
+        if (backdrop == null || heightDip <= 0) return;
+        int version = ++_renderVersion;
+        var ui = TaskScheduler.FromCurrentSynchronizationContext();
+        Task.Run(() => backdrop.Render(GlassWidth, heightDip, GlassRadius)).ContinueWith(t =>
+        {
+            if (version == _renderVersion && t.Status == TaskStatus.RanToCompletion && backdrop == _backdrop) SetGlass(t.Result);
+        }, ui);
     }
 
     private void SetGlass(ImageSource image) =>
@@ -305,14 +320,14 @@ public partial class SearchWindow : Window
 
     /// <summary>
     /// Captures only what is behind the glass, never the glass itself: the window is excluded from screen
-    /// capture just for this one snapshot, taken as it opens. If Windows does not confirm the exclusion,
-    /// nothing is captured, so a frame of the glass can never end up inside the glass (that is what made it
-    /// stack up and darken or brighten).
+    /// capture for this one snapshot, taken while the window is still hidden (its last frame faded to fully
+    /// transparent). There is no live refresh, so a frame of the glass can never end up inside the glass
+    /// (that is what made it stack up and darken or brighten).
     /// </summary>
     private Backdrop? CaptureBehind()
     {
         var rect = _captureRect;
-        if (!SetExcluded(true)) return null;
+        SetExcluded(true);
         try
         {
             Native.DwmFlush();
@@ -333,7 +348,17 @@ public partial class SearchWindow : Window
         Resources["Fg"] = new SolidColorBrush(dark ? Colors.White : Color.FromRgb(0x1C, 0x1C, 0x1E));
         Resources["FgDim"] = new SolidColorBrush(dark ? Color.FromArgb(0xA6, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x99, 0x3C, 0x3C, 0x43));
         // Clear Liquid Glass tint: the background shows through clearly, with just enough light/dark for legible text.
-        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x48, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x5C, 0xF7, 0xF7, 0xFA));
+        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x42, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x52, 0xF7, 0xF7, 0xFA));
+        // A soft halo around Spotlight's own text and icons (like Apple's vibrancy): it stays readable over any
+        // background, so nothing behind the clear glass visually collides with it.
+        ResultsContent.Effect = new System.Windows.Media.Effects.DropShadowEffect
+        {
+            Color = dark ? Colors.Black : Colors.White,
+            BlurRadius = 9,
+            ShadowDepth = 0,
+            Opacity = dark ? 0.6 : 0.75,
+            RenderingBias = System.Windows.Media.Effects.RenderingBias.Performance,
+        };
         Resources["Hairline"] = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Resources["Hover"] = new SolidColorBrush(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
         var placeholder = L.T("Spotlight Search", "Spotlight Araması");

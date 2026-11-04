@@ -5,14 +5,14 @@ using System.Windows.Media.Imaging;
 namespace Odak;
 
 /// <summary>
-/// Our own clear Liquid Glass. The screen region behind the window is captured (and refreshed live while
-/// Spotlight is open), only lightly softened so whatever is behind stays clearly visible, then the glass
-/// edges bend the light like a real lens: the closer to the rim, the stronger the refraction, with a hint
-/// of chromatic dispersion. Works even when Windows "Transparency effects" are turned off.
+/// Our own clear Liquid Glass. As the window opens, the screen region behind it is captured once at full
+/// resolution and shown as is, with no blur, so whatever is behind stays sharp and clearly visible. Only a
+/// thin curved bezel at the edge bends the light like a real lens, with a hint of chromatic dispersion and a
+/// specular highlight. Works even when Windows "Transparency effects" are turned off.
 /// </summary>
 internal sealed class Backdrop
 {
-    private const int Downscale = 2;
+    private const int Downscale = 1;
 
     private readonly int[] _pixels;
     private readonly int _w, _h;
@@ -26,35 +26,31 @@ internal sealed class Backdrop
         _scale = scale;
     }
 
-    /// <summary>Captures a pixel rectangle of the screen and prepares the lightly softened base image.</summary>
+    /// <summary>Captures a pixel rectangle of the screen at full resolution.</summary>
     public static Backdrop? Capture(int x, int y, int width, int height, double dpiScale)
     {
         if (width <= 0 || height <= 0) return null;
         try
         {
-            // One GDI StretchBlt straight into a half-size buffer: a few milliseconds, so the live refresh
-            // only needs to hide the window from capture very briefly.
-            int sw = Math.Max(8, width / Downscale), sh = Math.Max(8, height / Downscale);
-            var pixels = Native.CaptureScaled(x, y, width, height, sw, sh);
+            var pixels = Native.CaptureScaled(x, y, width, height, width, height);
             if (pixels == null) return null;
-
-            // A light two-pass softening: the background stays clearly readable, like clear glass, but
-            // fine detail no longer fights with the text on top.
+            // A very light softening (about 2 px): everything behind stays visible, shapes and colours stay
+            // crisp, but text behind no longer collides with Spotlight's own text.
             var tmp = new int[pixels.Length];
             for (int pass = 0; pass < 2; pass++)
             {
-                BlurLine(pixels, tmp, sw, sh, 1, horizontal: true);
-                BlurLine(tmp, pixels, sw, sh, 1, horizontal: false);
+                BlurLine(pixels, tmp, width, height, 2, horizontal: true);
+                BlurLine(tmp, pixels, width, height, 2, horizontal: false);
             }
-            Vibrance(pixels, 1.18);
-            return new Backdrop(pixels, sw, sh, dpiScale);
+            // Makes every pixel opaque (GDI leaves alpha at 0) and adds a touch of vibrancy.
+            Vibrance(pixels, 1.08);
+            return new Backdrop(pixels, width, height, dpiScale);
         }
         catch
         {
             return null;
         }
     }
-
     /// <summary>
     /// Produces the edge-refracted image for the given glass size (DIP). The image is returned with a DPI
     /// that makes it appear in WPF at exactly the size of the glass.
@@ -65,8 +61,8 @@ internal sealed class Backdrop
         int w = Math.Clamp((int)Math.Round(widthDip * k), 1, _w);
         int h = Math.Clamp((int)Math.Round(heightDip * k), 1, _h);
         double r = radiusDip * k;
-        double band = 26 * k;       // width of the curved bezel
-        double shift = 22 * k;      // strongest bend, at the very edge
+        double band = 16 * k;       // width of the thin curved bezel; everything inside is clear
+        double shift = 14 * k;      // strongest bend, at the very edge
         // Light comes from the top left, like Apple's Liquid Glass.
         const double lx = -0.5, ly = -0.866;
         double cx = w / 2.0, cy = h / 2.0, hx = w / 2.0 - r, hy = h / 2.0 - r;
