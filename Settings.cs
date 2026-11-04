@@ -19,6 +19,8 @@ public sealed class AppSettings
     /// <summary>"en" (default) or "tr".</summary>
     public string Language { get; set; } = "en";
     public SearchEngine WebSearch { get; set; } = SearchEngine.Google;
+    /// <summary>Refresh what is behind the glass while Spotlight is open (once a second).</summary>
+    public bool LiveGlass { get; set; } = true;
 
     public static AppSettings Current { get; private set; } = Load();
 

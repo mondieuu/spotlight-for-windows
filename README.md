@@ -27,7 +27,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | 📂 **Paste a path** | Paste `C:\Windows\notepad.exe` or a folder path to open it in File Explorer. |
 | 🎵 **MP3 / MP4 converter** | Paste a YouTube or Instagram link and save it as an MP4 video or an MP3 audio file with one key. |
 | 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
-| 🪟 **Liquid Glass** | The glass blurs whatever is behind it and bends light at its edges. |
+| 🪟 **Clear Liquid Glass** | Crystal-clear glass that shows what is really behind it, kept live while open, with lens refraction and light dispersion at the edges. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
 | 🧹 **Clean uninstall** | Uninstalling removes the program, index, settings, shortcuts and registry entries. Nothing is left behind. |
 
@@ -96,6 +96,7 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 |---|---|
 | **Theme** | System (follows Windows) · Light · Dark |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
+| **Live glass** | On / Off. Keeps what is behind the glass up to date; turn it off while screen sharing. |
 | **Web search** | Google · Bing · DuckDuckGo |
 | **Start with Windows** | On / Off |
 
@@ -198,6 +199,7 @@ This is an independent project, **not affiliated with or endorsed by Apple Inc.*
 - **Disk yolu yapıştır,** Dosya Gezgini'nde açılsın. **YouTube veya Instagram bağlantısı yapıştır,** MP4 ya da MP3 olarak indir.
 - **Ayarlar:** tepsi menüsünden **Ayarlar…** ile ya da Spotlight'a `ayarlar`/`tema` yazarak açılır.
   - Tema: Sistem / Açık / Koyu
+  - Canlı cam: camın arkasındakini güncel tutar (ekran paylaşırken kapatılabilir)
   - Arayüz dili: English / Türkçe
   - Web arama motoru
   - Windows ile başlatma

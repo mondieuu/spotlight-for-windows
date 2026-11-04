@@ -116,11 +116,15 @@ public partial class SearchWindow : Window
         Left = area.Left + (area.Width - Width) / 2;
         Top = area.Top + area.Height * 0.2 - GlassTop;
 
-        // Capture the screen behind the window before it appears; the glass (blur + edge refraction) is built from it.
+        // Capture the screen behind the window before it appears; the glass is built from it and then kept live.
+        // DwmFlush first, so a frame of the window's previous showing can never end up inside the glass.
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        _backdrop = Backdrop.Capture(
+        _captureRect = new System.Drawing.Rectangle(
             (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
-            (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale), scale);
+            (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
+        _captureScale = scale;
+        Native.DwmFlush();
+        _backdrop = Backdrop.Capture(_captureRect.X, _captureRect.Y, _captureRect.Width, _captureRect.Height, scale);
         _height.Snap(ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68);
         UpdateGlass();
         _closing = false;
@@ -132,6 +136,7 @@ public partial class SearchWindow : Window
         Query.SelectAll();
         // Accepts typing from the first frame; the animation never makes you wait.
         _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
+        StartLiveGlass();
         _ = AppIndex.RefreshAsync();
     }
 
@@ -139,6 +144,7 @@ public partial class SearchWindow : Window
     {
         if (!IsVisible || _closing) return;
         _fileSearch?.Cancel();
+        _liveGlass?.Cancel();
         _closing = true;
         // Leaves along the path it came in on (same scale axis), a little faster.
         _open.To(0, ReduceMotion ? 0.15 : 0.22, 1.0, settled: () =>
@@ -195,19 +201,82 @@ public partial class SearchWindow : Window
 
     // ---- Glass
 
-    private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e) => UpdateGlass();
+    private System.Drawing.Rectangle _captureRect;
+    private double _captureScale = 1;
+    private CancellationTokenSource? _liveGlass;
+    private volatile float _glassHeight = 68;
+
+    private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        _glassHeight = (float)e.NewSize.Height;
+        UpdateGlass();
+    }
 
     /// <summary>Edge refraction is computed for the real size of the glass and refreshed as the result list grows.</summary>
     private void UpdateGlass()
     {
         if (_backdrop == null) return;
         double h = Glass.ActualHeight > 0 ? Glass.ActualHeight : 68;
-        Glass.Background = new ImageBrush(_backdrop.Render(GlassWidth, h, GlassRadius))
+        SetGlass(_backdrop.Render(GlassWidth, h, GlassRadius));
+    }
+
+    private void SetGlass(ImageSource image) =>
+        Glass.Background = new ImageBrush(image)
         {
             Stretch = Stretch.None,
             AlignmentX = AlignmentX.Left,
             AlignmentY = AlignmentY.Top,
         };
+
+    /// <summary>
+    /// Keeps the glass live (once a second) so it always shows what is really behind it: videos,
+    /// scrolling pages, windows that move. For each refresh the window is hidden from screen capture for a
+    /// single compositor frame (it stays fully visible on screen), the region behind it is captured, and the
+    /// refracted image is built off the UI thread so typing never stutters.
+    /// </summary>
+    /// <summary>Sets display affinity from any thread (falls back to the UI thread if Windows requires it).</summary>
+    private void Affinity(IntPtr hwnd, uint value)
+    {
+        if (!Native.SetWindowDisplayAffinity(hwnd, value))
+            Dispatcher.Invoke(() => Native.SetWindowDisplayAffinity(hwnd, value));
+    }
+
+    private void StartLiveGlass()
+    {
+        _liveGlass?.Cancel();
+        // Off in Settings (e.g. while screen sharing): the glass keeps the snapshot taken when it opened.
+        if (!AppSettings.Current.LiveGlass) return;
+        var cts = _liveGlass = new CancellationTokenSource();
+        var hwnd = new WindowInteropHelper(this).Handle;
+        var rect = _captureRect;
+        var scale = _captureScale;
+        Task.Run(async () =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, cts.Token); } catch (OperationCanceledException) { return; }
+                Backdrop? fresh;
+                try
+                {
+                    // Hidden from capture for about one compositor frame plus a ~2 ms copy.
+                    Affinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
+                    Native.DwmFlush();
+                    fresh = Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, scale);
+                }
+                finally
+                {
+                    Affinity(hwnd, Native.WDA_NONE);
+                }
+                if (fresh == null || cts.IsCancellationRequested) continue;
+                var image = fresh.Render(GlassWidth, _glassHeight, GlassRadius);
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (cts.IsCancellationRequested) return;
+                    _backdrop = fresh;
+                    SetGlass(image);
+                });
+            }
+        });
     }
 
     // ---- Appearance (Light / Dark / follow Windows) and language
@@ -217,8 +286,8 @@ public partial class SearchWindow : Window
         bool dark = AppSettings.Current.IsDark;
         Resources["Fg"] = new SolidColorBrush(dark ? Colors.White : Color.FromRgb(0x1C, 0x1C, 0x1E));
         Resources["FgDim"] = new SolidColorBrush(dark ? Color.FromArgb(0xA6, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x99, 0x3C, 0x3C, 0x43));
-        // Liquid Glass tint: thin enough to see through, with just enough light/dark for legible text.
-        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x7A, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x9E, 0xF7, 0xF7, 0xFA));
+        // Clear Liquid Glass tint: the background shows through clearly, with just enough light/dark for legible text.
+        Resources["Tint"] = new SolidColorBrush(dark ? Color.FromArgb(0x48, 0x1C, 0x1C, 0x1E) : Color.FromArgb(0x5C, 0xF7, 0xF7, 0xFA));
         Resources["Hairline"] = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Resources["Hover"] = new SolidColorBrush(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
         var placeholder = L.T("Spotlight Search", "Spotlight Araması");

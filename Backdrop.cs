@@ -1,22 +1,18 @@
 using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using System.Windows.Media.Imaging;
-using PixelFormat = System.Drawing.Imaging.PixelFormat;
+
 
 namespace Odak;
 
 /// <summary>
-/// Our own Liquid Glass backdrop. Just before the window opens, the screen region behind it is captured,
-/// blurred and made more vibrant (saturation boosted). Then lens refraction like Apple's Liquid Glass
-/// is applied at the edges of the glass: the closer to the edge, the more the background bends inward.
-/// Works even when Windows "Transparency effects" are turned off.
+/// Our own clear Liquid Glass. The screen region behind the window is captured (and refreshed live while
+/// Spotlight is open), only lightly softened so whatever is behind stays clearly visible, then the glass
+/// edges bend the light like a real lens: the closer to the rim, the stronger the refraction, with a hint
+/// of chromatic dispersion. Works even when Windows "Transparency effects" are turned off.
 /// </summary>
 internal sealed class Backdrop
 {
-    private const int Downscale = 3;
+    private const int Downscale = 2;
 
     private readonly int[] _pixels;
     private readonly int _w, _h;
@@ -30,38 +26,27 @@ internal sealed class Backdrop
         _scale = scale;
     }
 
-    /// <summary>Captures a pixel rectangle of the screen and prepares the blurred, vibrant base image.</summary>
+    /// <summary>Captures a pixel rectangle of the screen and prepares the lightly softened base image.</summary>
     public static Backdrop? Capture(int x, int y, int width, int height, double dpiScale)
     {
         if (width <= 0 || height <= 0) return null;
         try
         {
-            using var full = new Bitmap(width, height, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(full))
-                g.CopyFromScreen(x, y, 0, 0, new Size(width, height), CopyPixelOperation.SourceCopy);
-
+            // One GDI StretchBlt straight into a half-size buffer: a few milliseconds, so the live refresh
+            // only needs to hide the window from capture very briefly.
             int sw = Math.Max(8, width / Downscale), sh = Math.Max(8, height / Downscale);
-            using var small = new Bitmap(sw, sh, PixelFormat.Format32bppArgb);
-            using (var g = Graphics.FromImage(small))
-            {
-                g.InterpolationMode = InterpolationMode.HighQualityBilinear;
-                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-                g.DrawImage(full, 0, 0, sw, sh);
-            }
+            var pixels = Native.CaptureScaled(x, y, width, height, sw, sh);
+            if (pixels == null) return null;
 
-            var data = small.LockBits(new Rectangle(0, 0, sw, sh), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            var pixels = new int[sw * sh];
-            Marshal.Copy(data.Scan0, pixels, 0, pixels.Length);
-            small.UnlockBits(data);
-
-            // Three-pass box blur ≈ Gaussian (the background stays recognisable without distracting from the text).
+            // A light two-pass softening: the background stays clearly readable, like clear glass, but
+            // fine detail no longer fights with the text on top.
             var tmp = new int[pixels.Length];
-            for (int pass = 0; pass < 3; pass++)
+            for (int pass = 0; pass < 2; pass++)
             {
-                BlurLine(pixels, tmp, sw, sh, 4, horizontal: true);
-                BlurLine(tmp, pixels, sw, sh, 4, horizontal: false);
+                BlurLine(pixels, tmp, sw, sh, 1, horizontal: true);
+                BlurLine(tmp, pixels, sw, sh, 1, horizontal: false);
             }
-            Vibrance(pixels, 1.45);
+            Vibrance(pixels, 1.18);
             return new Backdrop(pixels, sw, sh, dpiScale);
         }
         catch
@@ -76,12 +61,12 @@ internal sealed class Backdrop
     /// </summary>
     public BitmapSource Render(double widthDip, double heightDip, double radiusDip)
     {
-        double k = _scale / Downscale; // DIP → downscaled image pixel
+        double k = _scale / Downscale; // DIP → small-image pixels
         int w = Math.Clamp((int)Math.Round(widthDip * k), 1, _w);
         int h = Math.Clamp((int)Math.Round(heightDip * k), 1, _h);
         double r = radiusDip * k;
-        double band = 26 * k;       // edge band where refraction applies
-        double shift = 16 * k;      // maximum bend, at the outermost edge
+        double band = 30 * k;       // width of the refracting rim
+        double shift = 20 * k;      // strongest bend, at the very edge
         double cx = w / 2.0, cy = h / 2.0, hx = w / 2.0 - r, hy = h / 2.0 - r;
 
         var output = new int[w * h];
@@ -89,7 +74,7 @@ internal sealed class Backdrop
         {
             for (int px = 0; px < w; px++)
             {
-                // Signed distance field of the rounded rectangle, and the outward normal.
+                // Signed distance to the rounded rectangle, and its outward normal.
                 double dx = px + 0.5 - cx, dy = py + 0.5 - cy;
                 double qx = Math.Abs(dx) - hx, qy = Math.Abs(dy) - hy;
                 double nx, ny, dist;
@@ -111,16 +96,22 @@ internal sealed class Backdrop
                     nx = 0; ny = Math.Sign(dy);
                 }
 
-                double inside = -dist; // distance inward from the edge
-                double sx = px, sy = py;
-                if (inside < band)
+                double inside = -dist; // distance in from the rim
+                if (inside >= band)
                 {
-                    double t = 1 - Math.Max(0, inside) / band;
-                    double amount = shift * t * t * t; // lens bend that ramps up sharply toward the edge
-                    sx -= nx * amount;
-                    sy -= ny * amount;
+                    // The clear centre: background as is.
+                    output[py * w + px] = _pixels[Math.Min(py, _h - 1) * _w + Math.Min(px, _w - 1)];
+                    continue;
                 }
-                output[py * w + px] = Sample(sx, sy, inside < band ? (1 - Math.Max(0, inside) / band) : 0);
+
+                // Lens rim: background is pulled inward, red bends a little more than blue (dispersion).
+                double t = 1 - Math.Max(0, inside) / band;
+                double amount = shift * t * t * t;
+                double lift = 1 + 0.16 * t * t; // the thicker edge catches more light
+                int cr = Channel(px - nx * amount * 1.12, py - ny * amount * 1.12, 16, lift);
+                int cg = Channel(px - nx * amount, py - ny * amount, 8, lift);
+                int cb = Channel(px - nx * amount * 0.88, py - ny * amount * 0.88, 0, lift);
+                output[py * w + px] = unchecked((int)0xFF000000) | (cr << 16) | (cg << 8) | cb;
             }
         }
 
@@ -130,8 +121,8 @@ internal sealed class Backdrop
         return image;
     }
 
-    /// <summary>Bilinear sampling; slightly brightens near the edge (where the glass gets thicker).</summary>
-    private int Sample(double x, double y, double edge)
+    /// <summary>Bilinear sample of one colour channel, brightened by <paramref name="lift"/>.</summary>
+    private int Channel(double x, double y, int shiftBits, double lift)
     {
         x = Math.Clamp(x, 0, _w - 1.001);
         y = Math.Clamp(y, 0, _h - 1.001);
@@ -139,17 +130,12 @@ internal sealed class Backdrop
         double fx = x - x0, fy = y - y0;
         int c00 = _pixels[y0 * _w + x0], c10 = _pixels[y0 * _w + x0 + 1];
         int c01 = _pixels[(y0 + 1) * _w + x0], c11 = _pixels[(y0 + 1) * _w + x0 + 1];
-        double lift = 1 + 0.10 * edge * edge;
-        int Ch(int shiftBits)
-        {
-            double a = ((c00 >> shiftBits) & 255) * (1 - fx) + ((c10 >> shiftBits) & 255) * fx;
-            double b = ((c01 >> shiftBits) & 255) * (1 - fx) + ((c11 >> shiftBits) & 255) * fx;
-            return Math.Min(255, (int)((a * (1 - fy) + b * fy) * lift));
-        }
-        return unchecked((int)0xFF000000) | (Ch(16) << 16) | (Ch(8) << 8) | Ch(0);
+        double a = ((c00 >> shiftBits) & 255) * (1 - fx) + ((c10 >> shiftBits) & 255) * fx;
+        double b = ((c01 >> shiftBits) & 255) * (1 - fx) + ((c11 >> shiftBits) & 255) * fx;
+        return Math.Min(255, (int)((a * (1 - fy) + b * fy) * lift));
     }
 
-    /// <summary>Makes colours more vivid, like Apple's "vibrancy" effect.</summary>
+    /// <summary>Makes colours livelier, like Apple's "vibrancy".</summary>
     private static void Vibrance(int[] px, double saturation)
     {
         for (int i = 0; i < px.Length; i++)

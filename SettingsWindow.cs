@@ -119,6 +119,14 @@ public sealed class SettingsWindow : Window
                 (int)s.Theme,
                 i => { s.Theme = (ThemeMode)i; s.Save(); }))));
 
+        var live = new CheckBox { IsChecked = s.LiveGlass, VerticalAlignment = VerticalAlignment.Center };
+        live.Checked += (_, _) => { s.LiveGlass = true; s.Save(); };
+        live.Unchecked += (_, _) => { s.LiveGlass = false; s.Save(); };
+        _content.Children.Add(Group(
+            Row(L.T("Live glass", "Canlı cam"), live),
+            Note(L.T("Keeps what is behind the glass up to date. Turn it off while screen sharing so viewers never see the window blink.",
+                     "Camın arkasındakini güncel tutar. Ekran paylaşırken kapat; izleyenler pencerenin göz kırptığını görmez."))));
+
         // Language
         _content.Children.Add(SectionLabel(L.T("Language", "Dil")));
         _content.Children.Add(Group(

@@ -24,6 +24,65 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    // ---- Live glass: briefly hide our own window from screen capture so we can see what is behind it.
+    public const uint WDA_NONE = 0x0, WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);
+
+    /// <summary>Waits until the desktop compositor has presented the next frame.</summary>
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmFlush();
+
+    // ---- Fast, downscaled screen capture (GDI StretchBlt with HALFTONE averaging)
+    [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [DllImport("gdi32.dll")] private static extern int SetStretchBltMode(IntPtr hdc, int mode);
+    [DllImport("gdi32.dll")] private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr old);
+    [DllImport("gdi32.dll")] private static extern bool StretchBlt(IntPtr dst, int dx, int dy, int dw, int dh, IntPtr src, int sx, int sy, int sw, int sh, uint rop);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public int biSize, biWidth, biHeight;
+        public short biPlanes, biBitCount;
+        public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant;
+    }
+
+    private const int HALFTONE = 4;
+    private const uint SRCCOPY = 0x00CC0020;
+
+    /// <summary>Copies a screen rectangle straight into a smaller 32-bit pixel buffer (top-down BGRA).</summary>
+    public static int[]? CaptureScaled(int x, int y, int width, int height, int dw, int dh)
+    {
+        IntPtr screen = GetDC(IntPtr.Zero), mem = IntPtr.Zero, dib = IntPtr.Zero, old = IntPtr.Zero;
+        try
+        {
+            mem = CreateCompatibleDC(screen);
+            var bmi = new BITMAPINFOHEADER { biSize = Marshal.SizeOf<BITMAPINFOHEADER>(), biWidth = dw, biHeight = -dh, biPlanes = 1, biBitCount = 32 };
+            dib = CreateDIBSection(screen, ref bmi, 0, out var bits, IntPtr.Zero, 0);
+            if (dib == IntPtr.Zero) return null;
+            old = SelectObject(mem, dib);
+            SetStretchBltMode(mem, HALFTONE);
+            SetBrushOrgEx(mem, 0, 0, IntPtr.Zero);
+            if (!StretchBlt(mem, 0, 0, dw, dh, screen, x, y, width, height, SRCCOPY)) return null;
+            var pixels = new int[dw * dh];
+            Marshal.Copy(bits, pixels, 0, pixels.Length);
+            return pixels;
+        }
+        finally
+        {
+            if (old != IntPtr.Zero) SelectObject(mem, old);
+            if (dib != IntPtr.Zero) DeleteObject(dib);
+            if (mem != IntPtr.Zero) DeleteDC(mem);
+            ReleaseDC(IntPtr.Zero, screen);
+        }
+    }
+
     // ---- Shell icons (the real icons of Start menu apps)
     [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IShellItemImageFactory
