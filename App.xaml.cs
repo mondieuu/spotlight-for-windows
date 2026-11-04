@@ -36,6 +36,21 @@ public partial class App : Application
             ShowSetup(uninstall: true);
             return;
         }
+        if (Installer.IsSetupExe && e.Args.Contains("--update"))
+        {
+            // Started by Software Update: replace the program silently and start the new version.
+            try
+            {
+                Installer.UpdateInPlace();
+                Installer.LaunchInstalled("--tray --updated");
+                Shutdown();
+            }
+            catch
+            {
+                ShowSetup(uninstall: false); // fall back to the normal setup window
+            }
+            return;
+        }
         if (Installer.IsSetupExe)
         {
             ShowSetup(uninstall: false);
@@ -58,6 +73,42 @@ public partial class App : Application
         if (!e.Args.Contains("--tray")) _window.ShowSpotlight();
         // --settings: open the Settings window directly (e.g. from a shortcut).
         if (e.Args.Contains("--settings")) SettingsWindow.Open(_window);
+
+        // Software Update: automatic checks, plus a note right after an update finished.
+        Updater.Changed += () => Dispatcher.BeginInvoke(OnUpdaterChanged);
+        Updater.Start();
+        if (e.Args.Contains("--updated"))
+            ShowBalloon(L.T("Spotlight was updated", "Spotlight güncellendi"),
+                        L.T($"You are now on version {Installer.Version}.", $"Artık {Installer.Version} sürümünü kullanıyorsun."), null);
+    }
+
+    // ---- Software Update
+
+    private Version? _announced;
+
+    private void OnUpdaterChanged()
+    {
+        BuildMenu();
+        if (Updater.Status == Updater.State.Available && Updater.Latest is { } r && r.Version != _announced)
+        {
+            _announced = r.Version;
+            ShowBalloon(L.T($"Spotlight {r.Version.ToString(3)} is available", $"Spotlight {r.Version.ToString(3)} hazır"),
+                        L.T("Click to update. Your settings stay.", "Güncellemek için tıkla. Ayarların korunur."),
+                        InstallUpdate);
+        }
+    }
+
+    /// <summary>Downloads the new version, starts its silent update and quits so the files can be replaced.</summary>
+    internal async void InstallUpdate()
+    {
+        var setup = await Updater.DownloadAsync();
+        if (setup == null)
+        {
+            ShowBalloon(L.T("Update failed", "Güncellenemedi"), Updater.Error ?? "", null);
+            return;
+        }
+        Updater.Launch(setup);
+        Quit();
     }
 
     private void ShowSetup(bool uninstall)
@@ -80,8 +131,9 @@ public partial class App : Application
         _tray.DoubleClick += (_, _) => _window.ShowSpotlight();
         _tray.BalloonTipClicked += (_, _) =>
         {
-            if (_lastFile != null && File.Exists(_lastFile))
-                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_lastFile}\"") { UseShellExecute = true });
+            var action = _balloonAction;
+            _balloonAction = null;
+            action?.Invoke();
         };
 
         BuildMenu();
@@ -98,6 +150,12 @@ public partial class App : Application
     {
         if (_tray == null || _window == null) return;
         var menu = new Forms.ContextMenuStrip();
+        if (Updater.Status == Updater.State.Available && Updater.Latest is { } update)
+        {
+            var item = menu.Items.Add(L.T($"Update to {update.Version.ToString(3)}…", $"{update.Version.ToString(3)} sürümüne güncelle…"), null, (_, _) => InstallUpdate());
+            item.Font = new System.Drawing.Font(item.Font, System.Drawing.FontStyle.Bold);
+            menu.Items.Add(new Forms.ToolStripSeparator());
+        }
         menu.Items.Add(L.T($"Open ({_window.HotkeyText})", $"Aç ({_window.HotkeyText})"), null, (_, _) => _window.ShowSpotlight());
         menu.Items.Add(L.T("Settings…", "Ayarlar…"), null, (_, _) => SettingsWindow.Open(_window));
         menu.Items.Add(L.T("Downloads folder", "İndirilenler klasörü"), null, (_, _) =>
@@ -120,10 +178,23 @@ public partial class App : Application
         old?.Dispose();
     }
 
+    private Action? _balloonAction;
+
+    /// <summary>Download notifications: clicking one shows the file in File Explorer.</summary>
     private void ShowNotification(string title, string text, string? file)
     {
         _lastFile = file;
-        _tray?.ShowBalloonTip(4000, title, text, file != null ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        ShowBalloon(title, text, file == null ? null : () =>
+        {
+            if (_lastFile != null && File.Exists(_lastFile))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_lastFile}\"") { UseShellExecute = true });
+        }, file == null);
+    }
+
+    private void ShowBalloon(string title, string text, Action? onClick, bool warning = false)
+    {
+        _balloonAction = onClick;
+        _tray?.ShowBalloonTip(5000, title, text, warning ? Forms.ToolTipIcon.Warning : Forms.ToolTipIcon.Info);
     }
 
     // ---- "Start with Windows" (current user only, HKCU\...\Run)

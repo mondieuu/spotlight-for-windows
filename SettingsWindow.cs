@@ -67,12 +67,16 @@ public sealed class SettingsWindow : Window
         PreviewKeyDown += OnKey;
 
         AppSettings.Changed += OnSettingsChanged;
+        Updater.Changed += OnUpdaterChanged;
         Closed += (_, _) =>
         {
             AppSettings.Changed -= OnSettingsChanged;
+            Updater.Changed -= OnUpdaterChanged;
             if (_recording) _search.ResumeHotkey();
         };
         Rebuild();
+        // Like Apple's Software Update pane: look for a new version as soon as Settings opens.
+        if (Updater.Status is Updater.State.Idle or Updater.State.Failed or Updater.State.UpToDate) _ = Updater.CheckAsync();
     }
 
     /// <summary>Only theme and language changes redraw the window, so switches can finish their animation.</summary>
@@ -133,6 +137,62 @@ public sealed class SettingsWindow : Window
         _recorderNote = Footnote(L.T("Click the shortcut, then press the new combination. Esc cancels.",
                                      "Kısayola tıkla, sonra yeni tuş kombinasyonuna bas. Esc iptal eder."));
         _content.Children.Add(_recorderNote);
+
+        // Software Update
+        _updateStatus = new TextBlock { Foreground = _fgDim, FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        _updateButton = new Button
+        {
+            MinWidth = 104,
+            Height = 30,
+            Padding = new Thickness(14, 0, 14, 0),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = _fg,
+            Background = _segBg,
+            Template = RoundTemplate(8),
+            Cursor = Cursors.Hand,
+        };
+        _updateButton.Click += (_, _) =>
+        {
+            if (Updater.Status == Updater.State.Available) ((App)Application.Current).InstallUpdate();
+            else _ = Updater.CheckAsync();
+        };
+        var updateControl = new StackPanel { Orientation = Orientation.Horizontal };
+        updateControl.Children.Add(_updateStatus);
+        updateControl.Children.Add(_updateButton);
+        _content.Children.Add(Group(
+            Row("", Color.FromRgb(0x8E, 0x8E, 0x93), L.T("Software Update", "Yazılım Güncelleme"), updateControl),
+            Row("", Color.FromRgb(0x5E, 0x5C, 0xE6), L.T("Check automatically", "Otomatik denetle"),
+                Switch(s.AutoCheckUpdates, on => { s.AutoCheckUpdates = on; s.Save(); }))));
+        _content.Children.Add(Footnote(L.T("New versions come from the project's GitHub releases and install in place; your settings stay.",
+                                           "Yeni sürümler projenin GitHub sürümlerinden gelir ve yerinde kurulur; ayarların korunur.")));
+        RefreshUpdate();
+    }
+
+    // ---- Software Update row
+
+    private TextBlock? _updateStatus;
+    private Button? _updateButton;
+
+    private void OnUpdaterChanged() => Dispatcher.BeginInvoke(RefreshUpdate);
+
+    private void RefreshUpdate()
+    {
+        if (_updateStatus == null || _updateButton == null) return;
+        var latest = Updater.Latest;
+        _updateButton.IsEnabled = Updater.Status is not (Updater.State.Checking or Updater.State.Downloading);
+        _updateButton.Background = Updater.Status == Updater.State.Available ? AccentBrush : _segBg;
+        _updateButton.Foreground = Updater.Status == Updater.State.Available ? Brushes.White : _fg;
+        _updateStatus.Foreground = Updater.Status == Updater.State.Failed ? Red : _fgDim;
+        (_updateStatus.Text, _updateButton.Content) = Updater.Status switch
+        {
+            Updater.State.Checking => (L.T("Checking…", "Denetleniyor…"), L.T("Check Now", "Şimdi Denetle")),
+            Updater.State.Available when latest != null => (L.T($"{latest.Version.ToString(3)} is available", $"{latest.Version.ToString(3)} hazır"), L.T("Update Now", "Şimdi Güncelle")),
+            Updater.State.Downloading => ($"{Updater.Progress * 100:0}%", L.T("Updating…", "Güncelleniyor…")),
+            Updater.State.UpToDate => (L.T("Up to date", "Güncel"), L.T("Check Now", "Şimdi Denetle")),
+            Updater.State.Failed => (L.T("Could not check", "Denetlenemedi"), L.T("Try Again", "Tekrar Dene")),
+            _ => ($"{Installer.Version}", L.T("Check Now", "Şimdi Denetle")),
+        };
     }
 
     // ---- Title bar and app card

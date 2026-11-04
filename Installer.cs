@@ -21,7 +21,9 @@ namespace Odak;
 public static class Installer
 {
     public const string AppName = "Spotlight";
-    public const string Version = "1.3.0";
+    /// <summary>The app version, taken from &lt;Version&gt; in Odak.csproj (the only place to change it).</summary>
+    public static readonly string Version =
+        (typeof(Installer).Assembly.GetName().Version ?? new System.Version(1, 0, 0)).ToString(3);
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Spotlight";
 
@@ -45,7 +47,19 @@ public static class Installer
     {
         StopOtherInstances();
         Directory.CreateDirectory(InstallDir);
-        File.Copy(Environment.ProcessPath!, InstalledExe, overwrite: true);
+        // The previous version may need a moment to release its file after quitting.
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Copy(Environment.ProcessPath!, InstalledExe, overwrite: true);
+                break;
+            }
+            catch (IOException) when (attempt < 10)
+            {
+                System.Threading.Thread.Sleep(400);
+            }
+        }
 
         CreateShortcut(StartMenuLink, InstalledExe, "--open");
         if (desktopShortcut) CreateShortcut(DesktopLink, InstalledExe, "--open");
@@ -72,8 +86,19 @@ public static class Installer
     }
 
     /// <summary>Launches the installed Spotlight.</summary>
-    public static void LaunchInstalled() =>
-        Process.Start(new ProcessStartInfo(InstalledExe, "--open") { UseShellExecute = true, WorkingDirectory = InstallDir });
+    public static void LaunchInstalled(string args = "--open") =>
+        Process.Start(new ProcessStartInfo(InstalledExe, args) { UseShellExecute = true, WorkingDirectory = InstallDir });
+
+    /// <summary>
+    /// Silent in-place update (run by Software Update): replaces the program, keeps the user's choices for
+    /// "Start with Windows" and the desktop shortcut, and leaves settings, the file index and downloads alone.
+    /// </summary>
+    public static void UpdateInPlace()
+    {
+        bool startup;
+        using (var run = Registry.CurrentUser.OpenSubKey(RunKey)) startup = run?.GetValue(AppName) != null;
+        Install(startup, File.Exists(DesktopLink));
+    }
 
     /// <summary>Removes everything. The program folder is deleted by a hidden command after this process exits.</summary>
     public static void Uninstall(bool deleteDownloads)

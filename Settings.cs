@@ -22,6 +22,8 @@ public sealed class AppSettings
     /// <summary>Global shortcut: modifier flags (Alt = 1, Ctrl = 2, Shift = 4, Win = 8) and virtual-key code.</summary>
     public uint HotkeyModifiers { get; set; } = 0x1;
     public uint HotkeyKey { get; set; } = 0x20;
+    /// <summary>Check GitHub for a new version automatically (shortly after start, then every 6 hours).</summary>
+    public bool AutoCheckUpdates { get; set; } = true;
 
     public static AppSettings Current { get; private set; } = Load();
 
