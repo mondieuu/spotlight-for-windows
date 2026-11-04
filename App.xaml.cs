@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows;
+using System.Windows.Interop;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
@@ -16,8 +17,8 @@ public partial class App : Application
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private Mutex? _single;
-    private SearchWindow? _window;
-    private Forms.NotifyIcon? _tray;
+    private static SearchWindow? _window;
+    private static Forms.NotifyIcon? _tray;
     private string? _lastFile;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -84,6 +85,7 @@ public partial class App : Application
 
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add($"Aç ({_window.HotkeyText})", null, (_, _) => _window.ShowSpotlight());
+        menu.Items.Add("Ayarlar…", null, (_, _) => SettingsWindow.Open());
         menu.Items.Add("İndirilenler klasörü", null, (_, _) =>
         {
             Directory.CreateDirectory(Converter.OutputDir);
@@ -109,19 +111,66 @@ public partial class App : Application
     }
 
     // ---- "Windows ile başlat" (yalnızca bu kullanıcı için, HKCU\...\Run)
-
-    private static bool IsStartupEnabled()
+    public static bool IsStartupEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
         return key?.GetValue("Spotlight") != null;
     }
 
-    private static void SetStartup(bool enabled)
+    public static void SetStartup(bool enabled)
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
         if (key == null) return;
         if (enabled) key.SetValue("Spotlight", $"\"{Environment.ProcessPath}\" --tray");
         else key.DeleteValue("Spotlight", throwOnMissingValue: false);
+    }
+
+    // ---- Hotkey update -------------------------------------------------
+    public static void UpdateHotkey(string hotkey)
+    {
+        if (_window == null) return;
+        // Unregister existing hotkey
+        _window.UnregisterHotkey();
+
+        // Parse new hotkey string (e.g., "Alt+Space")
+        uint mods = 0;
+        uint vk = 0;
+        var parts = hotkey.Split('+', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var p in parts)
+        {
+            var part = p.Trim();
+            switch (part.ToLowerInvariant())
+            {
+                case "alt": mods |= Native.MOD_ALT; break;
+                case "ctrl":
+                case "control": mods |= Native.MOD_CONTROL; break;
+                case "shift": mods |= Native.MOD_SHIFT; break;
+                case "win":
+                case "windows": mods |= Native.MOD_WIN; break;
+                default:
+                    if (part.Equals("space", StringComparison.OrdinalIgnoreCase) || part.Equals("boşluk", StringComparison.OrdinalIgnoreCase))
+                        vk = Native.VK_SPACE;
+                    else if (part.Equals("enter", StringComparison.OrdinalIgnoreCase))
+                        vk = Native.VK_RETURN;
+                    else if (part.Length == 1)
+                        vk = (uint)char.ToUpperInvariant(part[0]);
+                    else
+                        vk = Native.VK_SPACE;
+                    break;
+            }
+        }
+
+        if (mods == 0) mods = Native.MOD_ALT;
+        if (vk == 0) vk = Native.VK_SPACE;
+
+        var hwnd = new WindowInteropHelper(_window).EnsureHandle();
+        const int HotkeyId = 0x0D4A;
+        Native.RegisterHotKey(hwnd, HotkeyId, mods | Native.MOD_NOREPEAT, vk);
+        _window.HotkeyText = hotkey;
+        if (_tray != null)
+        {
+            _tray.Text = $"Spotlight — {hotkey}";
+        }
     }
 
     private void Quit()

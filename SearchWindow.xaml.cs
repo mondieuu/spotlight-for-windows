@@ -28,7 +28,7 @@ public partial class SearchWindow : Window
     public Action<string, string, string?>? Notify { get; set; }
 
     /// <summary>Kayıtlı kısayol: "Alt + Boşluk" ya da yedek "Ctrl + Boşluk".</summary>
-    public string HotkeyText { get; private set; } = "Alt + Boşluk";
+    public string HotkeyText { get; set; } = "Alt + Boşluk";
 
     // Yay animasyonları (Apple: tepki + sönüm). Hepsi kritik sönümlü: sıçrama yok, sakin yerleşme.
     private readonly Spring _open;    // 0 = kapalı, 1 = açık (saydamlık + ölçek)
@@ -46,6 +46,17 @@ public partial class SearchWindow : Window
         _height = new Spring(68, h => Panel.Height = Math.Max(68, h));
         // Başka bir yere tıklanınca macOS'taki gibi kapanır.
         Deactivated += (_, _) => HideSpotlight();
+
+        AppSettings.OnSettingsChanged += () =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (IsVisible && Query.Text.Length > 0)
+                {
+                    OnQueryChanged(this, null!);
+                }
+            });
+        };
     }
 
     /// <summary>Açılış ilerlemesi: cam üst-ortadan hafifçe büyüyerek "belirir", aynı yoldan geri çekilir.</summary>
@@ -258,7 +269,22 @@ public partial class SearchWindow : Window
         var list = new List<ResultItem>();
         if (text.Length == 0) return list;
 
-        // 1) Bağlantı: YouTube / Instagram → MP4 / MP3
+        // 1) Doğrudan Web Arama Kısayolu (? ya da g ya da web ile başlayan aramalar)
+        if (AppSettings.Current.EnableWebSearch)
+        {
+            string? directWeb = null;
+            if (text.StartsWith("?") && text.Length > 1) directWeb = text[1..].Trim();
+            else if (text.StartsWith("g ", StringComparison.OrdinalIgnoreCase) && text.Length > 2) directWeb = text[2..].Trim();
+            else if (text.StartsWith("web ", StringComparison.OrdinalIgnoreCase) && text.Length > 4) directWeb = text[4..].Trim();
+
+            if (!string.IsNullOrEmpty(directWeb))
+            {
+                list.Add(WebSearchItem(directWeb, isFallback: false));
+                return list;
+            }
+        }
+
+        // 2) Bağlantı: YouTube / Instagram → MP4 / MP3
         if (Uri.TryCreate(text, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
         {
             if (Converter.IsSupported(uri))
@@ -278,7 +304,7 @@ public partial class SearchWindow : Window
             return list;
         }
 
-        // 2) Disk yolu: dosya → Dosya Gezgini'nde seçili göster, klasör → aç
+        // 3) Disk yolu: dosya → Dosya Gezgini'nde seçili göster, klasör → aç
         var path = AsPath(text);
         if (path != null)
         {
@@ -286,7 +312,7 @@ public partial class SearchWindow : Window
             return list;
         }
 
-        // 3) Uygulamalar (dosyalar ardından arka planda eklenir)
+        // 4) Uygulamalar (dosyalar ardından arka planda eklenir)
         // Uygulamalar ve Windows araçları/ayarları iki bölümde; en iyi sonucu içeren bölüm üstte.
         var found = AppIndex.Search(text, 8);
         var sections = found
@@ -297,8 +323,20 @@ public partial class SearchWindow : Window
             list.Add(Header(isApp ? "Uygulamalar" : "Sistem ve Ayarlar"));
             foreach (var app in items) list.Add(AppItem(app));
         }
+
         // SPOTLIGHT_DEMO=1: tanıtım ekran görüntülerinde kişisel dosya yolları görünmesin.
         searchFiles = text.Length >= 2 && Environment.GetEnvironmentVariable("SPOTLIGHT_DEMO") != "1";
+
+        // Web araması seçeneği: Kullanıcı bir şey yazdığında her zaman listeye eklenir
+        if (AppSettings.Current.EnableWebSearch)
+        {
+            var webItem = WebSearchItem(text, isFallback: found.Count == 0);
+            if (AppSettings.Current.AlwaysShowWebSearchAtTop)
+                list.Insert(0, webItem);
+            else
+                list.Add(webItem);
+        }
+
         return list;
     }
 
@@ -322,6 +360,29 @@ public partial class SearchWindow : Window
             {
                 rows.Add(Header(FileIndex.IsScanning ? "Dosyalar dizinleniyor… (ilk tarama birkaç dakika sürer)" : "Dosya dizini hazırlanıyor…"));
             }
+
+            // Web arama öğesini ayara göre en üstte veya en altta tut
+            if (AppSettings.Current.EnableWebSearch)
+            {
+                var existingWeb = _items.FirstOrDefault(i => i.IsWebSearch);
+                if (existingWeb != null)
+                {
+                    _items.Remove(existingWeb);
+                }
+
+                bool hasAnyOtherResults = _items.Any(i => !i.IsHeader && !i.IsWebSearch) || hits.Count > 0;
+                var webItem = WebSearchItem(text, isFallback: !hasAnyOtherResults);
+
+                if (AppSettings.Current.AlwaysShowWebSearchAtTop)
+                {
+                    _items.Insert(0, webItem);
+                }
+                else
+                {
+                    rows.Add(webItem);
+                }
+            }
+
             if (rows.Count == 0) return;
             foreach (var row in rows) _items.Add(row);
             RefreshList(selectFirst: false);
@@ -341,16 +402,53 @@ public partial class SearchWindow : Window
             EntryKind.Folder => "Klasör",
             _ => "Uygulama",
         };
+        bool isSettings = app.Command == "spotlight:settings";
         return new ResultItem
         {
             Title = app.Name,
             // Diğer dildeki adı da göster: "Windows aracı · Device Manager"
-            Subtitle = app.AltName != null ? $"{kind} · {app.AltName}" : kind,
+            Subtitle = isSettings ? "Spotlight tercihleri ve web araması" : (app.AltName != null ? $"{kind} · {app.AltName}" : kind),
             App = app,
             Icon = app.Icon,
-            Glyph = app.Kind switch { EntryKind.Setting => "", EntryKind.Folder => "", _ => "" },
-            GlyphBackground = app.Kind == EntryKind.Folder ? Solid(0x0A, 0x84, 0xFF) : Solid(0x8E, 0x8E, 0x93),
-            Run = _ => { AppIndex.Launch(app); return Task.FromResult(false); },
+            Glyph = isSettings ? "" : app.Kind switch { EntryKind.Setting => "", EntryKind.Folder => "", _ => "" },
+            GlyphBackground = isSettings || app.Kind == EntryKind.Folder ? Solid(0x0A, 0x84, 0xFF) : Solid(0x8E, 0x8E, 0x93),
+            Run = _ =>
+            {
+                if (isSettings)
+                {
+                    SettingsWindow.Open();
+                    return Task.FromResult(false);
+                }
+                AppIndex.Launch(app);
+                return Task.FromResult(false);
+            },
+        };
+    }
+
+    private static ResultItem WebSearchItem(string query, bool isFallback)
+    {
+        var engine = AppSettings.Current.SearchEngine;
+        var url = AppSettings.GetSearchUrl(engine, query);
+        var searchVerb = (engine ?? "").ToLowerInvariant() switch
+        {
+            "bing" => $"{engine}'de Ara",
+            "yandex" => $"{engine}'te Ara",
+            _ => $"{engine}'da Ara"
+        };
+
+        return new ResultItem
+        {
+            Title = $"{searchVerb}: \"{query}\"",
+            Subtitle = isFallback ? "Sonuç bulunamadı · Web'de aramak için Enter" : $"{engine} ile Web'de ara",
+            Glyph = "",
+            GlyphBackground = Solid(0x00, 0x7A, 0xFF),
+            Hint = "Enter · Tarayıcıda aç",
+            IsWebSearch = true,
+            Run = _ =>
+            {
+                Open(url);
+                return Task.FromResult(false);
+            }
         };
     }
 
