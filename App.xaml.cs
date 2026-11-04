@@ -57,7 +57,7 @@ public partial class App : Application
         // Show once on first launch as a reminder of the shortcut.
         if (!e.Args.Contains("--tray")) _window.ShowSpotlight();
         // --settings: open the Settings window directly (e.g. from a shortcut).
-        if (e.Args.Contains("--settings")) SettingsWindow.Open(_window.HotkeyText);
+        if (e.Args.Contains("--settings")) SettingsWindow.Open(_window);
     }
 
     private void ShowSetup(bool uninstall)
@@ -85,8 +85,13 @@ public partial class App : Application
         };
 
         BuildMenu();
-        // Rebuild the menu when the language changes in Settings.
+        // Rebuild the menu when the language or the shortcut changes in Settings.
         AppSettings.Changed += () => Dispatcher.Invoke(BuildMenu);
+        _window.HotkeyChanged += () =>
+        {
+            _tray.Text = $"Spotlight — {_window.HotkeyText}";
+            BuildMenu();
+        };
     }
 
     private void BuildMenu()
@@ -94,7 +99,7 @@ public partial class App : Application
         if (_tray == null || _window == null) return;
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(L.T($"Open ({_window.HotkeyText})", $"Aç ({_window.HotkeyText})"), null, (_, _) => _window.ShowSpotlight());
-        menu.Items.Add(L.T("Settings…", "Ayarlar…"), null, (_, _) => SettingsWindow.Open(_window.HotkeyText));
+        menu.Items.Add(L.T("Settings…", "Ayarlar…"), null, (_, _) => SettingsWindow.Open(_window));
         menu.Items.Add(L.T("Downloads folder", "İndirilenler klasörü"), null, (_, _) =>
         {
             Directory.CreateDirectory(Converter.OutputDir);

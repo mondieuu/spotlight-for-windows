@@ -107,7 +107,7 @@ internal sealed class Backdrop
                 // Lens rim: background is pulled inward, red bends a little more than blue (dispersion).
                 double t = 1 - Math.Max(0, inside) / band;
                 double amount = shift * t * t * t;
-                double lift = 1 + 0.16 * t * t; // the thicker edge catches more light
+                double lift = 1 + 0.05 * t * t; // the thicker edge catches a little more light
                 int cr = Channel(px - nx * amount * 1.12, py - ny * amount * 1.12, 16, lift);
                 int cg = Channel(px - nx * amount, py - ny * amount, 8, lift);
                 int cb = Channel(px - nx * amount * 0.88, py - ny * amount * 0.88, 0, lift);

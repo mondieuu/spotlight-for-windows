@@ -5,40 +5,50 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 
 namespace Odak;
 
 /// <summary>
-/// Settings: appearance (System / Light / Dark), language (English / Türkçe), web search engine and
-/// start with Windows. Changes apply immediately, macOS-style; there is no Save button.
+/// Settings, styled after Apple's Settings: grouped rounded lists, coloured icon squares, iOS switches and
+/// segmented controls. Every change applies immediately; there is no Save button.
 /// </summary>
 public sealed class SettingsWindow : Window
 {
     private static SettingsWindow? _instance;
-    private readonly string _hotkey;
-    private readonly StackPanel _content = new() { Margin = new Thickness(30, 26, 30, 26) };
-    private readonly Border _card = new() { CornerRadius = new CornerRadius(24), BorderThickness = new Thickness(1.2) };
+    private readonly SearchWindow _search;
+    private readonly StackPanel _content = new() { Margin = new Thickness(22, 14, 22, 24) };
+    private readonly Border _card = new() { CornerRadius = new CornerRadius(20), BorderThickness = new Thickness(1) };
+    private bool _builtDark, _builtTurkish;
+    private Button? _recorder;
+    private TextBlock? _recorderNote;
+    private bool _recording;
 
-    private Brush _fg = Brushes.White, _fgDim = Brushes.Gray, _groupBg = Brushes.Transparent, _segBg = Brushes.Transparent, _segOn = Brushes.Transparent, _hair = Brushes.Transparent;
+    private Brush _fg = Brushes.White, _fgDim = Brushes.Gray, _groupBg = Brushes.Transparent, _segBg = Brushes.Transparent,
+        _segOn = Brushes.Transparent, _hair = Brushes.Transparent, _switchOff = Brushes.Gray;
+
+    private static readonly Brush SwitchOn = Frozen(Color.FromRgb(0x34, 0xC7, 0x59));
+    private static readonly Brush AccentBrush = Frozen(Color.FromRgb(0x0A, 0x84, 0xFF));
+    private static readonly Brush Red = Frozen(Color.FromRgb(0xFF, 0x45, 0x3A));
 
     /// <summary>Opens the window, or brings the open one to the front.</summary>
-    public static void Open(string hotkey)
+    public static void Open(SearchWindow search)
     {
         if (_instance != null)
         {
             _instance.Activate();
             return;
         }
-        _instance = new SettingsWindow(hotkey);
+        _instance = new SettingsWindow(search);
         _instance.Closed += (_, _) => _instance = null;
         _instance.Show();
         _instance.Activate();
     }
 
-    private SettingsWindow(string hotkey)
+    private SettingsWindow(SearchWindow search)
     {
-        _hotkey = hotkey;
-        Width = 520;
+        _search = search;
+        Width = 580;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
@@ -51,204 +61,387 @@ public sealed class SettingsWindow : Window
         try { Icon = BitmapFrame.Create(new Uri("pack://application:,,,/Assets/odak.ico")); } catch { }
 
         _card.Child = _content;
-        _card.Effect = new DropShadowEffect { BlurRadius = 40, ShadowDepth = 12, Direction = 270, Opacity = 0.4 };
-        _card.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
-        Content = new Border { Padding = new Thickness(30, 20, 30, 40), Child = _card };
-        KeyDown += (_, e) => { if (e.Key == Key.Escape) Close(); };
+        _card.Effect = new DropShadowEffect { BlurRadius = 46, ShadowDepth = 14, Direction = 270, Opacity = 0.38 };
+        _card.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed && !_recording) DragMove(); };
+        Content = new Border { Padding = new Thickness(30, 20, 30, 44), Child = _card };
+        PreviewKeyDown += OnKey;
 
-        AppSettings.Changed += Rebuild;
-        Closed += (_, _) => AppSettings.Changed -= Rebuild;
+        AppSettings.Changed += OnSettingsChanged;
+        Closed += (_, _) =>
+        {
+            AppSettings.Changed -= OnSettingsChanged;
+            if (_recording) _search.ResumeHotkey();
+        };
         Rebuild();
     }
 
-    /// <summary>Redraws everything; used on open and after each change (theme and language apply live).</summary>
+    /// <summary>Only theme and language changes redraw the window, so switches can finish their animation.</summary>
+    private void OnSettingsChanged()
+    {
+        var s = AppSettings.Current;
+        if (s.IsDark != _builtDark || s.IsTurkish != _builtTurkish) Dispatcher.Invoke(Rebuild);
+    }
+
     private void Rebuild()
     {
         var s = AppSettings.Current;
-        bool dark = s.IsDark;
-        _fg = Frozen(dark ? Colors.White : Color.FromRgb(0x1C, 0x1C, 0x1E));
-        _fgDim = Frozen(dark ? Color.FromArgb(0xA6, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x99, 0x3C, 0x3C, 0x43));
-        _groupBg = Frozen(dark ? Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
-        _segBg = Frozen(dark ? Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
-        _segOn = Frozen(dark ? Color.FromArgb(0xFF, 0x63, 0x63, 0x66) : Colors.White);
-        _hair = Frozen(dark ? Color.FromArgb(0x1F, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
-
-        _card.Background = dark
-            ? new LinearGradientBrush(Color.FromRgb(0x2C, 0x2C, 0x30), Color.FromRgb(0x1C, 0x1C, 0x1E), 90)
-            : new LinearGradientBrush(Color.FromRgb(0xF7, 0xF7, 0xFA), Color.FromRgb(0xEC, 0xEC, 0xF0), 90);
-        _card.BorderBrush = dark
-            ? new LinearGradientBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF), Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF), 60)
-            : new LinearGradientBrush(Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF), Color.FromArgb(0x26, 0x00, 0x00, 0x00), 60);
+        bool dark = _builtDark = s.IsDark;
+        _builtTurkish = s.IsTurkish;
+        _fg = Frozen(dark ? Colors.White : Colors.Black);
+        _fgDim = Frozen(dark ? Color.FromArgb(0x99, 0xEB, 0xEB, 0xF5) : Color.FromArgb(0x99, 0x3C, 0x3C, 0x43));
+        _groupBg = Frozen(dark ? Color.FromRgb(0x2C, 0x2C, 0x2E) : Colors.White);
+        _segBg = Frozen(dark ? Color.FromRgb(0x1C, 0x1C, 0x1E) : Color.FromRgb(0xE9, 0xE9, 0xEB));
+        _segOn = Frozen(dark ? Color.FromRgb(0x63, 0x63, 0x66) : Colors.White);
+        _hair = Frozen(dark ? Color.FromArgb(0x5C, 0x54, 0x54, 0x58) : Color.FromArgb(0x4A, 0x3C, 0x3C, 0x43));
+        _switchOff = Frozen(dark ? Color.FromRgb(0x39, 0x39, 0x3D) : Color.FromRgb(0xE9, 0xE9, 0xEB));
+        _card.Background = Frozen(dark ? Color.FromRgb(0x1C, 0x1C, 0x1E) : Color.FromRgb(0xF2, 0xF2, 0xF7));
+        _card.BorderBrush = Frozen(dark ? Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Title = L.T("Spotlight Settings", "Spotlight Ayarları");
 
         _content.Children.Clear();
-
-        // Title row with a close button
-        var head = new Grid { Margin = new Thickness(0, 0, 0, 18) };
-        head.Children.Add(new TextBlock
-        {
-            Text = L.T("Settings", "Ayarlar"),
-            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-            FontSize = 26,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = _fg,
-        });
-        var close = new Button
-        {
-            Content = "",
-            FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
-            FontSize = 12,
-            Width = 30,
-            Height = 30,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = _fg,
-            Background = _segBg,
-            Template = RoundTemplate(15),
-            Cursor = Cursors.Hand,
-            ToolTip = L.T("Close", "Kapat"),
-        };
-        close.Click += (_, _) => Close();
-        head.Children.Add(close);
-        _content.Children.Add(head);
+        _content.Children.Add(TitleBar());
+        _content.Children.Add(AppCard());
 
         // Appearance
-        _content.Children.Add(SectionLabel(L.T("Appearance", "Görünüm")));
         _content.Children.Add(Group(
-            Row(L.T("Theme", "Tema"), Segmented(
+            Row("", Color.FromRgb(0xAF, 0x52, 0xDE), L.T("Appearance", "Görünüm"), Segmented(
                 new[] { L.T("System", "Sistem"), L.T("Light", "Açık"), L.T("Dark", "Koyu") },
                 (int)s.Theme,
-                i => { s.Theme = (ThemeMode)i; s.Save(); }))));
+                i => { s.Theme = (ThemeMode)i; s.Save(); })),
+            Row("", Color.FromRgb(0x32, 0xAD, 0xE6), L.T("Live glass", "Canlı cam"),
+                Switch(s.LiveGlass, on => { s.LiveGlass = on; s.Save(); }))));
+        _content.Children.Add(Footnote(L.T("Live glass keeps what is behind Spotlight up to date. Turn it off while screen sharing.",
+                                           "Canlı cam, Spotlight'ın arkasındakini güncel tutar. Ekran paylaşırken kapatabilirsin.")));
 
-        var live = new CheckBox { IsChecked = s.LiveGlass, VerticalAlignment = VerticalAlignment.Center };
-        live.Checked += (_, _) => { s.LiveGlass = true; s.Save(); };
-        live.Unchecked += (_, _) => { s.LiveGlass = false; s.Save(); };
+        // Language and search
         _content.Children.Add(Group(
-            Row(L.T("Live glass", "Canlı cam"), live),
-            Note(L.T("Keeps what is behind the glass up to date. Turn it off while screen sharing so viewers never see the window blink.",
-                     "Camın arkasındakini güncel tutar. Ekran paylaşırken kapat; izleyenler pencerenin göz kırptığını görmez."))));
-
-        // Language
-        _content.Children.Add(SectionLabel(L.T("Language", "Dil")));
-        _content.Children.Add(Group(
-            Row(L.T("Display language", "Arayüz dili"), Segmented(
+            Row("", Color.FromRgb(0x0A, 0x84, 0xFF), L.T("Language", "Dil"), Segmented(
                 new[] { "English", "Türkçe" },
                 s.IsTurkish ? 1 : 0,
                 i => { s.Language = i == 1 ? "tr" : "en"; s.Save(); })),
-            Note(L.T("Search always understands both English and Turkish names.", "Arama her zaman hem İngilizce hem Türkçe adları anlar."))));
-
-        // Search
-        _content.Children.Add(SectionLabel(L.T("Search", "Arama")));
-        _content.Children.Add(Group(
-            Row(L.T("Web search", "Web araması"), Segmented(
+            Row("", Color.FromRgb(0xFF, 0x95, 0x00), L.T("Web search", "Web araması"), Segmented(
                 new[] { "Google", "Bing", "DuckDuckGo" },
                 (int)s.WebSearch,
-                i => { s.WebSearch = (SearchEngine)i; s.Save(); })),
-            Note(L.T("Used when nothing on your PC matches. Opens in your default browser.",
-                     "Bilgisayarında eşleşen bir şey yoksa kullanılır. Varsayılan tarayıcında açılır."))));
+                i => { s.WebSearch = (SearchEngine)i; s.Save(); }))));
+        _content.Children.Add(Footnote(L.T("Search understands English and Turkish names in either language.",
+                                           "Arama, dil ne olursa olsun İngilizce ve Türkçe adları anlar.")));
 
         // General
-        _content.Children.Add(SectionLabel(L.T("General", "Genel")));
-        var startup = new CheckBox
-        {
-            IsChecked = App.IsStartupEnabled(),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        startup.Checked += (_, _) => App.SetStartup(true);
-        startup.Unchecked += (_, _) => App.SetStartup(false);
+        _recorder = RecorderButton();
         _content.Children.Add(Group(
-            Row(L.T("Start with Windows", "Windows ile başlat"), startup),
-            Row(L.T("Keyboard shortcut", "Klavye kısayolu"), new TextBlock { Text = _hotkey, Foreground = _fgDim, FontSize = 13.5, VerticalAlignment = VerticalAlignment.Center })));
-
-        _content.Children.Add(new TextBlock
-        {
-            Text = $"Spotlight {Installer.Version}",
-            Foreground = _fgDim,
-            FontFamily = new FontFamily("Segoe UI Variable Small, Segoe UI"),
-            FontSize = 11.5,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 18, 0, 0),
-        });
+            Row("", Color.FromRgb(0x8E, 0x8E, 0x93), L.T("Keyboard shortcut", "Klavye kısayolu"), _recorder),
+            Row("", Color.FromRgb(0x34, 0xC7, 0x59), L.T("Start with Windows", "Windows ile başlat"),
+                Switch(App.IsStartupEnabled(), on => App.SetStartup(on)))));
+        _recorderNote = Footnote(L.T("Click the shortcut, then press the new combination. Esc cancels.",
+                                     "Kısayola tıkla, sonra yeni tuş kombinasyonuna bas. Esc iptal eder."));
+        _content.Children.Add(_recorderNote);
     }
 
-    // ---- Building blocks (grouped rows, like macOS System Settings)
+    // ---- Title bar and app card
 
-    private TextBlock SectionLabel(string text) => new()
+    private Grid TitleBar()
     {
-        Text = text,
-        Foreground = _fgDim,
-        FontFamily = new FontFamily("Segoe UI Variable Small, Segoe UI"),
-        FontSize = 12,
-        FontWeight = FontWeights.SemiBold,
-        Margin = new Thickness(6, 14, 0, 6),
-    };
+        var bar = new Grid { Height = 30, Margin = new Thickness(-8, 0, -8, 10) };
+        // macOS-style window buttons: red closes, the others are just for looks.
+        var lights = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var close = Dot(Color.FromRgb(0xFF, 0x5F, 0x57), true);
+        close.MouseLeftButtonUp += (_, _) => Close();
+        close.ToolTip = L.T("Close", "Kapat");
+        lights.Children.Add(close);
+        lights.Children.Add(Dot(Color.FromRgb(0xFE, 0xBC, 0x2E), false));
+        lights.Children.Add(Dot(Color.FromRgb(0x28, 0xC8, 0x40), false));
+        bar.Children.Add(lights);
+        bar.Children.Add(new TextBlock
+        {
+            Text = L.T("Settings", "Ayarlar"),
+            Foreground = _fg,
+            FontSize = 13.5,
+            FontWeight = FontWeights.SemiBold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return bar;
+    }
+
+    private static Ellipse Dot(Color c, bool active)
+    {
+        var e = new Ellipse
+        {
+            Width = 12,
+            Height = 12,
+            Margin = new Thickness(0, 0, 8, 0),
+            Fill = new SolidColorBrush(c),
+            Opacity = active ? 1 : 0.55,
+            Cursor = active ? Cursors.Hand : Cursors.Arrow,
+        };
+        return e;
+    }
+
+    /// <summary>The top card, like the Apple Account card in Settings.</summary>
+    private Border AppCard()
+    {
+        var grid = new Grid { Margin = new Thickness(14, 12, 14, 12) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        var icon = new Image { Width = 56, Height = 56, Margin = new Thickness(0, 0, 14, 0) };
+        try
+        {
+            var decoder = BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/odak.ico"), BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            BitmapFrame? best = null;
+            foreach (var f in decoder.Frames) if (best == null || f.PixelWidth > best.PixelWidth) best = f;
+            icon.Source = best;
+        }
+        catch { }
+        RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.HighQuality);
+        grid.Children.Add(icon);
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = "Spotlight", Foreground = _fg, FontSize = 19, FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI") });
+        text.Children.Add(new TextBlock { Text = L.T($"Version {Installer.Version} · Open with {_search.HotkeyText}", $"Sürüm {Installer.Version} · {_search.HotkeyText} ile aç"), Foreground = _fgDim, FontSize = 12.5, Margin = new Thickness(0, 2, 0, 0) });
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+        return new Border { CornerRadius = new CornerRadius(12), Background = _groupBg, Child = grid, Margin = new Thickness(0, 0, 0, 22) };
+    }
+
+    // ---- Grouped list building blocks
 
     private Border Group(params UIElement[] rows)
     {
         var stack = new StackPanel();
         for (int i = 0; i < rows.Length; i++)
         {
-            if (i > 0 && rows[i] is not TextBlock) stack.Children.Add(new Border { Height = 1, Background = _hair, Margin = new Thickness(14, 0, 0, 0) });
+            // Inset separator, starting after the icon like iOS.
+            if (i > 0) stack.Children.Add(new Border { Height = 1, Background = _hair, Margin = new Thickness(54, 0, 0, 0) });
             stack.Children.Add(rows[i]);
         }
         return new Border { CornerRadius = new CornerRadius(12), Background = _groupBg, Child = stack };
     }
 
-    private Grid Row(string label, UIElement control)
+    private Grid Row(string glyph, Color iconColor, string label, UIElement control)
     {
-        var g = new Grid { MinHeight = 48, Margin = new Thickness(14, 4, 10, 4) };
+        var g = new Grid { MinHeight = 50, Margin = new Thickness(12, 0, 12, 0) };
+        g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition());
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        g.Children.Add(new TextBlock { Text = label, Foreground = _fg, FontSize = 14, VerticalAlignment = VerticalAlignment.Center });
-        Grid.SetColumn(control, 1);
+        g.Children.Add(new Border
+        {
+            Width = 30,
+            Height = 30,
+            CornerRadius = new CornerRadius(7),
+            Background = new SolidColorBrush(iconColor),
+            Margin = new Thickness(0, 0, 12, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = glyph,
+                FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"),
+                FontSize = 15,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            },
+        });
+        var text = new TextBlock { Text = label, Foreground = _fg, FontSize = 14.5, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(text, 1);
+        g.Children.Add(text);
+        if (control is FrameworkElement fe) fe.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(control, 2);
         g.Children.Add(control);
         return g;
     }
 
-    private TextBlock Note(string text) => new()
+    private TextBlock Footnote(string text) => new()
     {
         Text = text,
         Foreground = _fgDim,
         FontFamily = new FontFamily("Segoe UI Variable Small, Segoe UI"),
-        FontSize = 11.5,
+        FontSize = 12,
         TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(14, 0, 14, 10),
+        Margin = new Thickness(14, 7, 14, 20),
     };
 
-    /// <summary>A macOS-style segmented control.</summary>
+    /// <summary>An iOS switch: green when on; the knob springs across.</summary>
+    private Border Switch(bool initial, Action<bool> onChange)
+    {
+        bool on = initial;
+        var knobMove = new TranslateTransform(on ? 20 : 0, 0);
+        var knob = new Ellipse
+        {
+            Width = 27,
+            Height = 27,
+            Fill = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(2),
+            RenderTransform = knobMove,
+            Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 1.5, Direction = 270, Opacity = 0.22 },
+        };
+        var track = new Border
+        {
+            Width = 51,
+            Height = 31,
+            CornerRadius = new CornerRadius(15.5),
+            Background = on ? SwitchOn : _switchOff,
+            Child = knob,
+            Cursor = Cursors.Hand,
+        };
+        var spring = new Spring(on ? 20 : 0, v => knobMove.X = v);
+        track.MouseLeftButtonUp += (_, _) =>
+        {
+            on = !on;
+            track.Background = on ? SwitchOn : _switchOff;
+            spring.To(on ? 20 : 0, 0.3, 0.82);
+            onChange(on);
+        };
+        return track;
+    }
+
+    /// <summary>A segmented control, like macOS/iOS.</summary>
     private Border Segmented(string[] options, int selected, Action<int> onSelect)
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2) };
+        var buttons = new Button[options.Length];
         for (int i = 0; i < options.Length; i++)
         {
             int index = i;
-            bool on = i == selected;
             var b = new Button
             {
                 Content = options[i],
-                MinWidth = 64,
-                Height = 28,
-                Padding = new Thickness(12, 0, 12, 0),
+                MinWidth = 50,
+                Height = 27,
+                Padding = new Thickness(9, 0, 9, 0),
                 FontSize = 12.5,
-                FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal,
                 Foreground = _fg,
-                Background = on ? _segOn : Brushes.Transparent,
                 Template = RoundTemplate(7),
                 Cursor = Cursors.Hand,
             };
-            if (on) b.Effect = new DropShadowEffect { BlurRadius = 4, ShadowDepth = 1, Direction = 270, Opacity = 0.18 };
-            b.Click += (_, _) => { if (!on) onSelect(index); };
+            buttons[i] = b;
+            b.Click += (_, _) =>
+            {
+                Mark(buttons, index);
+                onSelect(index);
+            };
             panel.Children.Add(b);
         }
-        return new Border { CornerRadius = new CornerRadius(9), Background = _segBg, Child = panel, VerticalAlignment = VerticalAlignment.Center };
+        Mark(buttons, selected);
+        return new Border { CornerRadius = new CornerRadius(9), Background = _segBg, Child = panel };
     }
 
-    private static ControlTemplate RoundTemplate(double radius)
+    private void Mark(Button[] buttons, int selected)
+    {
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            bool on = i == selected;
+            buttons[i].Background = on ? _segOn : Brushes.Transparent;
+            buttons[i].FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
+            buttons[i].Effect = on ? new DropShadowEffect { BlurRadius = 4, ShadowDepth = 1, Direction = 270, Opacity = 0.2 } : null;
+        }
+    }
+
+    // ---- Keyboard shortcut recorder
+
+    private Button RecorderButton()
+    {
+        var b = new Button
+        {
+            Content = _search.HotkeyText,
+            MinWidth = 120,
+            Height = 30,
+            Padding = new Thickness(14, 0, 14, 0),
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = _fg,
+            Background = _segBg,
+            BorderBrush = Brushes.Transparent,
+            Template = RoundTemplate(8, bordered: true),
+            Cursor = Cursors.Hand,
+        };
+        b.Click += (_, _) => StartRecording();
+        return b;
+    }
+
+    private void StartRecording()
+    {
+        if (_recorder == null || _recording) return;
+        _recording = true;
+        // Free the current shortcut while recording, so pressing it again reaches this window.
+        _search.SuspendHotkey();
+        _recorder.Content = L.T("Type shortcut…", "Kısayola bas…");
+        _recorder.BorderBrush = AccentBrush;
+        SetNote(L.T("Press the new combination, e.g. Ctrl + Shift + Space. Esc cancels.",
+                    "Yeni kombinasyona bas, ör. Ctrl + Shift + Space. Esc iptal eder."), false);
+        Activate();
+        Focus();
+    }
+
+    private void StopRecording()
+    {
+        _recording = false;
+        if (_recorder == null) return;
+        _recorder.Content = _search.HotkeyText;
+        _recorder.BorderBrush = Brushes.Transparent;
+    }
+
+    private void OnKey(object sender, KeyEventArgs e)
+    {
+        if (!_recording)
+        {
+            if (e.Key == Key.Escape) Close();
+            return;
+        }
+        e.Handled = true;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.Escape)
+        {
+            _search.ResumeHotkey();
+            StopRecording();
+            SetNote(L.T("Shortcut unchanged.", "Kısayol değişmedi."), false);
+            return;
+        }
+        // Wait for a real key; modifiers on their own are not a shortcut.
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
+            return;
+
+        uint mods = 0;
+        var m = Keyboard.Modifiers;
+        if ((m & ModifierKeys.Control) != 0) mods |= Native.MOD_CONTROL;
+        if ((m & ModifierKeys.Alt) != 0) mods |= Native.MOD_ALT;
+        if ((m & ModifierKeys.Shift) != 0) mods |= Native.MOD_SHIFT;
+        if (Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin)) mods |= Native.MOD_WIN;
+        bool functionKey = key >= Key.F1 && key <= Key.F24;
+        if (mods == 0 && !functionKey)
+        {
+            SetNote(L.T("Add Ctrl, Alt, Shift or Win to the key.", "Tuşa Ctrl, Alt, Shift ya da Win ekle."), true);
+            return;
+        }
+
+        uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+        bool ok = _search.TrySetHotkey(mods, vk);
+        StopRecording();
+        if (ok) SetNote(L.T($"Spotlight now opens with {_search.HotkeyText}.", $"Spotlight artık {_search.HotkeyText} ile açılıyor."), false);
+        else SetNote(L.T($"{SearchWindow.FormatHotkey(mods, vk)} is already used by another app. Try another one.",
+                         $"{SearchWindow.FormatHotkey(mods, vk)} başka bir uygulama tarafından kullanılıyor. Başka bir tane dene."), true);
+    }
+
+    private void SetNote(string text, bool error)
+    {
+        if (_recorderNote == null) return;
+        _recorderNote.Text = text;
+        _recorderNote.Foreground = error ? Red : _fgDim;
+    }
+
+    // ---- Helpers
+
+    private static ControlTemplate RoundTemplate(double radius, bool bordered = false)
     {
         var template = new ControlTemplate(typeof(Button));
         var border = new FrameworkElementFactory(typeof(Border));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius));
         border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
         border.SetBinding(Border.PaddingProperty, new System.Windows.Data.Binding("Padding") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        if (bordered)
+        {
+            border.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
+            border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+        }
         var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
         presenter.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
         presenter.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);

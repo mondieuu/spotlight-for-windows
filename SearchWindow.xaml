@@ -25,18 +25,18 @@
 
         <!-- Liquid Glass light rim: strong light from the top left, a counter-reflection at the bottom right. -->
         <LinearGradientBrush x:Key="Rim" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#E6FFFFFF" Offset="0" />
-            <GradientStop Color="#40FFFFFF" Offset="0.22" />
+            <GradientStop Color="#99FFFFFF" Offset="0" />
+            <GradientStop Color="#26FFFFFF" Offset="0.22" />
             <GradientStop Color="#08FFFFFF" Offset="0.5" />
-            <GradientStop Color="#33FFFFFF" Offset="0.8" />
-            <GradientStop Color="#99FFFFFF" Offset="1" />
+            <GradientStop Color="#1AFFFFFF" Offset="0.8" />
+            <GradientStop Color="#59FFFFFF" Offset="1" />
         </LinearGradientBrush>
         <!-- Inner rim: a thin second light line that conveys the thickness of the glass. -->
         <LinearGradientBrush x:Key="InnerRim" StartPoint="0,0" EndPoint="0,1">
-            <GradientStop Color="#38FFFFFF" Offset="0" />
+            <GradientStop Color="#1FFFFFFF" Offset="0" />
             <GradientStop Color="#00FFFFFF" Offset="0.4" />
             <GradientStop Color="#00FFFFFF" Offset="0.7" />
-            <GradientStop Color="#1FFFFFFF" Offset="1" />
+            <GradientStop Color="#0FFFFFFF" Offset="1" />
         </LinearGradientBrush>
 
         <!-- Thin, rounded macOS-style scrollbar (no arrow buttons) -->
@@ -118,7 +118,7 @@
         <Border CornerRadius="28" IsHitTestVisible="False">
             <Border.Background>
                 <RadialGradientBrush Center="0.3,0" GradientOrigin="0.3,0" RadiusX="0.9" RadiusY="0.55">
-                    <GradientStop Color="#2EFFFFFF" Offset="0" />
+                    <GradientStop Color="#12FFFFFF" Offset="0" />
                     <GradientStop Color="#00FFFFFF" Offset="1" />
                 </RadialGradientBrush>
             </Border.Background>

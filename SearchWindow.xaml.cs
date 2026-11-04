@@ -46,11 +46,14 @@ public partial class SearchWindow : Window
         _height = new Spring(68, h => Panel.Height = Math.Max(68, h));
         // Like macOS: clicking anywhere else closes it.
         Deactivated += (_, _) => HideSpotlight();
-        // Theme and language changes from the Settings window apply live.
+        // Theme, language and live-glass changes from the Settings window apply live.
         AppSettings.Changed += () => Dispatcher.Invoke(() =>
         {
             ApplyAppearance();
-            if (IsVisible) OnQueryChanged(this, null!);
+            if (!IsVisible || _closing) return;
+            OnQueryChanged(this, null!);
+            if (AppSettings.Current.LiveGlass) StartLiveGlass();
+            else _liveGlass?.Cancel();
         });
         ApplyAppearance();
     }
@@ -71,17 +74,82 @@ public partial class SearchWindow : Window
     {
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
-        if (!Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_ALT | Native.MOD_NOREPEAT, Native.VK_SPACE))
+        var s = AppSettings.Current;
+        if (Native.RegisterHotKey(hwnd, HotkeyId, s.HotkeyModifiers | Native.MOD_NOREPEAT, s.HotkeyKey))
         {
-            // If Alt+Space is taken by another app (e.g. PowerToys Run), use Ctrl+Space.
-            Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE);
-            HotkeyText = "Ctrl + Space";
+            HotkeyText = FormatHotkey(s.HotkeyModifiers, s.HotkeyKey);
+        }
+        else if (Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE))
+        {
+            // The chosen shortcut is taken by another app (e.g. PowerToys Run): fall back to Ctrl+Space.
+            HotkeyText = FormatHotkey(Native.MOD_CONTROL, Native.VK_SPACE);
         }
         _ = AppIndex.RefreshAsync(force: true);
         FileIndex.Start();
     }
 
     public void UnregisterHotkey() => Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+
+    /// <summary>Raised after the keyboard shortcut changes (the tray updates its text and menu).</summary>
+    public event Action? HotkeyChanged;
+
+    /// <summary>
+    /// Switches to a new global shortcut. Returns false (and keeps the old one) if another app already uses it.
+    /// </summary>
+    public bool TrySetHotkey(uint modifiers, uint key)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        Native.UnregisterHotKey(hwnd, HotkeyId);
+        if (!Native.RegisterHotKey(hwnd, HotkeyId, modifiers | Native.MOD_NOREPEAT, key))
+        {
+            var s0 = AppSettings.Current;
+            Native.RegisterHotKey(hwnd, HotkeyId, s0.HotkeyModifiers | Native.MOD_NOREPEAT, s0.HotkeyKey);
+            return false;
+        }
+        var s = AppSettings.Current;
+        s.HotkeyModifiers = modifiers;
+        s.HotkeyKey = key;
+        HotkeyText = FormatHotkey(modifiers, key);
+        s.Save();
+        HotkeyChanged?.Invoke();
+        return true;
+    }
+
+    /// <summary>Frees the shortcut while the Settings window records a new one.</summary>
+    public void SuspendHotkey() => Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+
+    public void ResumeHotkey()
+    {
+        var s = AppSettings.Current;
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (!Native.RegisterHotKey(hwnd, HotkeyId, s.HotkeyModifiers | Native.MOD_NOREPEAT, s.HotkeyKey))
+            Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE);
+    }
+
+    /// <summary>"Alt + Space", "Ctrl + Shift + K"…</summary>
+    public static string FormatHotkey(uint modifiers, uint key)
+    {
+        var parts = new List<string>();
+        if ((modifiers & Native.MOD_CONTROL) != 0) parts.Add("Ctrl");
+        if ((modifiers & Native.MOD_ALT) != 0) parts.Add("Alt");
+        if ((modifiers & Native.MOD_SHIFT) != 0) parts.Add("Shift");
+        if ((modifiers & Native.MOD_WIN) != 0) parts.Add("Win");
+        var k = KeyInterop.KeyFromVirtualKey((int)key);
+        parts.Add(k switch
+        {
+            Key.Space => "Space",
+            Key.OemPeriod => ".",
+            Key.OemComma => ",",
+            Key.OemQuestion => "/",
+            Key.Oem1 => ";",
+            Key.OemQuotes => "'",
+            Key.OemMinus => "-",
+            Key.OemPlus => "=",
+            >= Key.D0 and <= Key.D9 => ((char)('0' + (k - Key.D0))).ToString(),
+            _ => k.ToString(),
+        });
+        return string.Join(" + ", parts);
+    }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
@@ -108,6 +176,7 @@ public partial class SearchWindow : Window
             _open.To(1, ReduceMotion ? 0.2 : 0.32, 1.0);
             Activate();
             Query.Focus();
+            StartLiveGlass();
             return;
         }
         ApplyAppearance();
@@ -117,14 +186,14 @@ public partial class SearchWindow : Window
         Top = area.Top + area.Height * 0.2 - GlassTop;
 
         // Capture the screen behind the window before it appears; the glass is built from it and then kept live.
-        // DwmFlush first, so a frame of the window's previous showing can never end up inside the glass.
+        // The window is excluded from capture first: otherwise a lingering frame of its last showing could be
+        // captured, and the tint would stack up on every reopen (darker each time in dark mode, brighter in light).
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
         _captureRect = new System.Drawing.Rectangle(
             (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
             (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
         _captureScale = scale;
-        Native.DwmFlush();
-        _backdrop = Backdrop.Capture(_captureRect.X, _captureRect.Y, _captureRect.Width, _captureRect.Height, scale);
+        _backdrop = CaptureBehind(new WindowInteropHelper(this).Handle);
         _height.Snap(ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68);
         UpdateGlass();
         _closing = false;
@@ -228,12 +297,6 @@ public partial class SearchWindow : Window
             AlignmentY = AlignmentY.Top,
         };
 
-    /// <summary>
-    /// Keeps the glass live (once a second) so it always shows what is really behind it: videos,
-    /// scrolling pages, windows that move. For each refresh the window is hidden from screen capture for a
-    /// single compositor frame (it stays fully visible on screen), the region behind it is captured, and the
-    /// refracted image is built off the UI thread so typing never stutters.
-    /// </summary>
     /// <summary>Sets display affinity from any thread (falls back to the UI thread if Windows requires it).</summary>
     private void Affinity(IntPtr hwnd, uint value)
     {
@@ -241,6 +304,31 @@ public partial class SearchWindow : Window
             Dispatcher.Invoke(() => Native.SetWindowDisplayAffinity(hwnd, value));
     }
 
+    /// <summary>
+    /// Captures only what is behind the glass, never the glass itself: the window is excluded from screen
+    /// capture, two compositor frames pass so the exclusion is surely applied, then the region is copied.
+    /// The window stays fully visible on screen the whole time.
+    /// </summary>
+    private Backdrop? CaptureBehind(IntPtr hwnd)
+    {
+        var rect = _captureRect;
+        try
+        {
+            Affinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
+            Native.DwmFlush();
+            Native.DwmFlush();
+            return Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, _captureScale);
+        }
+        finally
+        {
+            Affinity(hwnd, Native.WDA_NONE);
+        }
+    }
+
+    /// <summary>
+    /// Keeps the glass live (twice a second) so it always shows what is really behind it: videos,
+    /// scrolling pages, windows that move. The refracted image is built off the UI thread so typing never stutters.
+    /// </summary>
     private void StartLiveGlass()
     {
         _liveGlass?.Cancel();
@@ -248,25 +336,13 @@ public partial class SearchWindow : Window
         if (!AppSettings.Current.LiveGlass) return;
         var cts = _liveGlass = new CancellationTokenSource();
         var hwnd = new WindowInteropHelper(this).Handle;
-        var rect = _captureRect;
-        var scale = _captureScale;
         Task.Run(async () =>
         {
             while (!cts.IsCancellationRequested)
             {
-                try { await Task.Delay(1000, cts.Token); } catch (OperationCanceledException) { return; }
-                Backdrop? fresh;
-                try
-                {
-                    // Hidden from capture for about one compositor frame plus a ~2 ms copy.
-                    Affinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE);
-                    Native.DwmFlush();
-                    fresh = Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, scale);
-                }
-                finally
-                {
-                    Affinity(hwnd, Native.WDA_NONE);
-                }
+                try { await Task.Delay(500, cts.Token); } catch (OperationCanceledException) { return; }
+                if (_closing) continue;
+                var fresh = CaptureBehind(hwnd);
                 if (fresh == null || cts.IsCancellationRequested) continue;
                 var image = fresh.Render(GlassWidth, _glassHeight, GlassRadius);
                 await Dispatcher.InvokeAsync(() =>
@@ -384,7 +460,7 @@ public partial class SearchWindow : Window
                 Subtitle = L.T("Theme, language and web search", "Tema, dil ve web araması"),
                 Glyph = "",
                 GlyphBackground = Solid(0x5E, 0x5C, 0xE6),
-                Run = _ => { SettingsWindow.Open(HotkeyText); return Task.FromResult(false); },
+                Run = _ => { SettingsWindow.Open(this); return Task.FromResult(false); },
             });
         }
 
