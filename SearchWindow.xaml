@@ -1,0 +1,207 @@
+<Window x:Class="Odak.SearchWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Spotlight"
+        Width="800"
+        Height="712"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Background="Transparent"
+        WindowStartupLocation="Manual"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <!-- Tema renkleri kod tarafında açık/koyu moda göre değiştirilir. -->
+        <SolidColorBrush x:Key="Fg" Color="White" />
+        <SolidColorBrush x:Key="FgDim" Color="#99FFFFFF" />
+        <SolidColorBrush x:Key="Tint" Color="#7A1C1C1E" />
+        <SolidColorBrush x:Key="Hairline" Color="#26FFFFFF" />
+        <SolidColorBrush x:Key="Hover" Color="#14FFFFFF" />
+        <SolidColorBrush x:Key="Accent" Color="#0A84FF" />
+
+        <!-- Liquid Glass ışık kenarı: sol üstten gelen güçlü ışık, sağ altta karşı yansıma. -->
+        <LinearGradientBrush x:Key="Rim" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#E6FFFFFF" Offset="0" />
+            <GradientStop Color="#40FFFFFF" Offset="0.22" />
+            <GradientStop Color="#08FFFFFF" Offset="0.5" />
+            <GradientStop Color="#33FFFFFF" Offset="0.8" />
+            <GradientStop Color="#99FFFFFF" Offset="1" />
+        </LinearGradientBrush>
+        <!-- İç kenar: camın kalınlığını hissettiren ince ikinci ışık çizgisi. -->
+        <LinearGradientBrush x:Key="InnerRim" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#38FFFFFF" Offset="0" />
+            <GradientStop Color="#00FFFFFF" Offset="0.4" />
+            <GradientStop Color="#00FFFFFF" Offset="0.7" />
+            <GradientStop Color="#1FFFFFFF" Offset="1" />
+        </LinearGradientBrush>
+
+        <!-- macOS tarzı ince, yuvarlak kaydırma çubuğu (ok düğmeleri yok) -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="MinWidth" Value="10" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True" Margin="0,6,3,6">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="3" Width="6" Background="{DynamicResource FgDim}" Opacity="0.45" />
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ResultItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource Fg}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="10,1" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Bg" CornerRadius="12" Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Hover}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Accent}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <!-- Bölüm başlıkları seçilemez. -->
+                <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                    <Setter Property="IsEnabled" Value="False" />
+                    <Setter Property="Focusable" Value="False" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <!-- Cam paneli: yüksekliği yay animasyonuyla içeriğe uyar; açılıp kapanırken üst-ortadan büyür/küçülür.
+         Kenar boşlukları gölgeye yer açar. -->
+    <Grid x:Name="Panel" Margin="40,24,40,0" VerticalAlignment="Top" Height="68" Opacity="0"
+          RenderTransformOrigin="0.5,0">
+        <Grid.RenderTransform>
+            <ScaleTransform x:Name="PanelScale" ScaleX="0.94" ScaleY="0.94" />
+        </Grid.RenderTransform>
+        <!-- Yumuşak, geniş gölge (cam havada süzülüyormuş gibi) -->
+        <Border CornerRadius="28" Background="Black">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="56" ShadowDepth="16" Direction="270" Opacity="0.38" RenderingBias="Performance" />
+            </Border.Effect>
+        </Border>
+
+        <!-- Bulanık + kenarlarda kırılan ekran görüntüsü (kod tarafında her açılışta yenilenir) -->
+        <Border x:Name="Glass" CornerRadius="28" Background="#FF2A2A2E" SizeChanged="OnGlassSizeChanged" />
+
+        <!-- Renk tonu -->
+        <Border CornerRadius="28" Background="{DynamicResource Tint}" />
+        <!-- Üstten gelen yumuşak parlama -->
+        <Border CornerRadius="28" IsHitTestVisible="False">
+            <Border.Background>
+                <RadialGradientBrush Center="0.3,0" GradientOrigin="0.3,0" RadiusX="0.9" RadiusY="0.55">
+                    <GradientStop Color="#2EFFFFFF" Offset="0" />
+                    <GradientStop Color="#00FFFFFF" Offset="1" />
+                </RadialGradientBrush>
+            </Border.Background>
+        </Border>
+        <!-- Işık kenarları -->
+        <Border CornerRadius="27" Margin="1.5" BorderThickness="1" BorderBrush="{StaticResource InnerRim}" IsHitTestVisible="False" />
+        <Border CornerRadius="28" BorderThickness="1.3" BorderBrush="{StaticResource Rim}" IsHitTestVisible="False" />
+
+        <!-- İçerik serbest yükseklikte ölçülür; panel ona doğru yaylanır, taşan kısım yuvarlak köşeden kırpılır. -->
+        <Canvas x:Name="ContentHost" ClipToBounds="True" SizeChanged="OnContentHostSizeChanged">
+        <StackPanel x:Name="ResultsContent" Width="720" SizeChanged="OnContentSizeChanged">
+            <!-- Arama alanı -->
+            <Grid Height="68" Margin="24,0,24,0">
+                <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="22"
+                           Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" />
+                <TextBlock x:Name="Placeholder" Text="Spotlight Araması" Margin="40,0,0,0"
+                           FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="24" FontWeight="Normal"
+                           Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" IsHitTestVisible="False" />
+                <TextBox x:Name="Query" Margin="38,0,0,0" VerticalAlignment="Center"
+                         FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="24" FontWeight="Normal"
+                         Background="Transparent" BorderThickness="0" Foreground="{DynamicResource Fg}"
+                         CaretBrush="{DynamicResource Accent}" SelectionBrush="{DynamicResource Accent}"
+                         AutomationProperties.Name="Spotlight Araması"
+                         TextChanged="OnQueryChanged" PreviewKeyDown="OnQueryKeyDown" />
+            </Grid>
+
+            <Border x:Name="Divider" Height="1" Margin="20,0" Background="{DynamicResource Hairline}" Visibility="Collapsed" />
+
+            <ListBox x:Name="Results" Visibility="Collapsed" MaxHeight="520" Margin="0,6,0,10"
+                     Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ItemContainerStyle="{StaticResource ResultItemStyle}"
+                     PreviewMouseLeftButtonDown="OnResultPressed" MouseLeftButtonUp="OnResultClicked"
+                     PreviewMouseLeftButtonUp="OnResultReleased" MouseLeave="OnResultReleased">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <!-- Bölüm başlığı -->
+                            <TextBlock Text="{Binding Title}" Visibility="{Binding HeaderVisibility}" Margin="12,10,0,4"
+                                       FontFamily="Segoe UI Variable Small, Segoe UI" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource FgDim}" />
+                            <!-- Sonuç satırı -->
+                            <Grid Height="54" Margin="10,0" Visibility="{Binding RowVisibility}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="42" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- Uygulama/dosya simgesi ya da iOS tarzı renkli sembol kutusu -->
+                                <Image Source="{Binding Icon}" Width="34" Height="34" Visibility="{Binding IconVisibility}"
+                                       RenderOptions.BitmapScalingMode="HighQuality" />
+                                <Border Width="32" Height="32" CornerRadius="8" Background="{Binding GlyphBackground}"
+                                        Visibility="{Binding GlyphVisibility}">
+                                    <TextBlock Text="{Binding Glyph}" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Subtitle}" FontFamily="Segoe UI Variable Small, Segoe UI" FontSize="12" Opacity="0.78" Margin="0,1,0,0" TextTrimming="CharacterEllipsis" />
+                                    <ProgressBar Value="{Binding Progress, Mode=OneWay}" Maximum="1" Height="3" Margin="0,5,40,0"
+                                                 Visibility="{Binding ProgressVisibility}" BorderThickness="0"
+                                                 Background="#33FFFFFF" Foreground="White" />
+                                </StackPanel>
+                                <!-- Seçili dosyada kısayol ipucu -->
+                                <TextBlock Grid.Column="2" Text="{Binding Hint}" FontSize="11.5" Opacity="0.8"
+                                           VerticalAlignment="Center" Margin="12,0,4,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </StackPanel>
+        </Canvas>
+    </Grid>
+</Window>
