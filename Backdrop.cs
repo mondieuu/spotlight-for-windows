@@ -10,8 +10,9 @@ namespace Odak;
 
 /// <summary>
 /// Live Liquid Glass. While the panel is open, a background thread copies the screen region behind it about
-/// 30 times a second, so videos and moving windows carry on behind the glass. The window is permanently
-/// excluded from screen capture (see SearchWindow), so the glass can never capture itself.
+/// 30 times a second, so videos and moving windows carry on behind the glass. The read leaves the panel out
+/// (see MagCapture), so the glass never captures itself and the panel still shows in Discord and screenshots.
+/// If that is unavailable, the window is excluded from capture instead, and does not appear in them.
 ///
 /// Kept cheap on purpose: only the rows the panel really covers are read, a frame identical to the previous
 /// one is dropped before any processing, the curved bezel uses a precomputed map, and buffers are reused.
@@ -32,7 +33,8 @@ internal sealed class Backdrop
     private readonly bool _live;
     private readonly Dispatcher _ui;
     private readonly Action<ImageSource> _setImage;
-    private readonly Native.ScreenGrabber _grabber;
+    private readonly Native.ScreenGrabber? _grabber;
+    private readonly bool _magnifier;
     private readonly object _swap = new();
     private readonly int[] _sumR, _sumG, _sumB;
 
@@ -49,13 +51,14 @@ internal sealed class Backdrop
     private int[] _mapX = new int[4096], _mapY = new int[4096], _mapSpec = new int[4096];
     private float[] _mapDx = new float[4096], _mapDy = new float[4096];
 
-    public Backdrop(int x, int y, int width, int maxHeight, double scale, double radiusDip, double heightDip, bool live, Action<ImageSource> setImage)
+    public Backdrop(int x, int y, int width, int maxHeight, double scale, double radiusDip, double heightDip, bool live, bool magnifier, Action<ImageSource> setImage)
     {
         _x = x; _y = y; _w = width; _maxH = maxHeight;
+        _magnifier = magnifier;
         _scale = scale; _radiusDip = radiusDip; _live = live;
         _setImage = setImage;
         _ui = Dispatcher.CurrentDispatcher;
-        _grabber = new Native.ScreenGrabber(width, maxHeight);
+        if (!magnifier) _grabber = new Native.ScreenGrabber(width, maxHeight);
         _sumR = new int[width]; _sumG = new int[width]; _sumB = new int[width];
         _wantH = ToPixels(heightDip);
 
@@ -92,7 +95,7 @@ internal sealed class Backdrop
 
     private int ToPixels(double dip) => Math.Clamp((int)Math.Round(dip * _scale), 1, _maxH);
 
-    private void ReleaseGrabber() => _grabber.Dispose();
+    private void ReleaseGrabber() => _grabber?.Dispose();
 
     private void Loop()
     {
@@ -119,7 +122,7 @@ internal sealed class Backdrop
         if (grab)
         {
             Grow(ref _raw, count);
-            if (!_grabber.Copy(_x, _y, _w, h, _raw)) return; // e.g. the secure desktop: keep the last frame
+            if (!(_magnifier ? MagCapture.Copy(_x, _y, _w, h, _maxH, _raw) : _grabber!.Copy(_x, _y, _w, h, _raw))) return; // e.g. the secure desktop: keep the last frame
             // Nothing moved behind the glass: skip all the work.
             if (!resized && h == _sourceH && _raw.AsSpan(0, count).SequenceEqual(_source.AsSpan(0, count))) return;
             Grow(ref _source, count);

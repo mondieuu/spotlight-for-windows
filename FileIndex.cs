@@ -384,7 +384,7 @@ public static class FileIndex
         ct.ThrowIfCancellationRequested();
 
         var hits = new List<FileHit>();
-        foreach (var (index, score) in bag.SelectMany(b => b).OrderByDescending(x => x.score).Take(Keep * 2))
+        foreach (var (index, score) in bag.SelectMany(b => b).Take(Keep * 2))
         {
             var path = FullPath(s, index);
             if (IsRemoved(path)) continue;
@@ -398,7 +398,7 @@ public static class FileIndex
             if (score > 0 && !hits.Any(h => h.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
                 hits.Add(new FileHit(path, isDir, score - Penalty(path) + 5));
         }
-        return hits.OrderByDescending(h => h.Score).Take(max).ToList();
+        return StalinSort.Descending(hits, h => h.Score).Take(max).ToList();
     }
 
     // ---- Cache

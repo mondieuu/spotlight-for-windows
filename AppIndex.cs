@@ -290,7 +290,7 @@ public static class AppIndex
             score += Math.Min(used * 4, 40);
             scored.Add((a, score));
         }
-        return scored.OrderByDescending(s => s.score).ThenBy(s => s.app.Name.Length).Take(max).Select(s => s.app).ToList();
+        return StalinSort.Descending(scored, s => s.score).Take(max).Select(s => s.app).ToList();
     }
 
     public static void Launch(AppEntry app)

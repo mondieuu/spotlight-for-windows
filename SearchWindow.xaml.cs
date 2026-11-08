@@ -21,6 +21,7 @@ public partial class SearchWindow : Window
     private readonly ObservableCollection<ResultItem> _items = new();
     private CancellationTokenSource? _fileSearch;
     private Backdrop? _backdrop;
+    private bool _useMagnifier;
     private bool _captureExcluded;
     private ResultItem? _webRow;
     private static readonly ConcurrentDictionary<string, ImageSource?> IconCache = new(StringComparer.OrdinalIgnoreCase);
@@ -226,9 +227,11 @@ public partial class SearchWindow : Window
         ApplyAppearance();
         // Like macOS: centred, about a fifth of the way down the screen the mouse is on.
         var hwnd = new WindowInteropHelper(this).Handle;
-        // The live glass reads the screen behind the window and must never see itself.
-        // Side effect: Spotlight does not appear in screenshots or screen recordings.
-        _captureExcluded = Native.SetWindowDisplayAffinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE)
+        // The live glass reads the screen behind the window and must never see itself. The magnifier leaves this
+        // window out of what it reads, so the panel stays visible to Discord and screenshots.
+        _useMagnifier = MagCapture.Start(hwnd);
+        // Fallback for PCs without it. Side effect: Spotlight does not appear in screenshots or screen recordings.
+        _captureExcluded = !_useMagnifier && Native.SetWindowDisplayAffinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE)
                            && Native.GetWindowDisplayAffinity(hwnd, out var affinity) && affinity == Native.WDA_EXCLUDEFROMCAPTURE;
         int glassX, glassY;
         double scale;
@@ -259,7 +262,7 @@ public partial class SearchWindow : Window
         SetClickArea(startHeight);
         // The first frame is built before the window appears; the glass then stays live until it closes.
         _backdrop = new Backdrop(glassX, glassY, (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale),
-                                 scale, GlassRadius, startHeight, _captureExcluded, SetGlass);
+                                 scale, GlassRadius, startHeight, _useMagnifier || _captureExcluded, _useMagnifier, SetGlass);
         _backdrop.Start();
         _closing = false;
         _open.Snap(0);
@@ -408,6 +411,7 @@ public partial class SearchWindow : Window
         };
         Resources["Hairline"] = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Resources["Hover"] = new SolidColorBrush(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
+        Themes.Apply(Resources, AppSettings.Current.CurrentTheme, dark, 0x8C, 0xA6);
         var placeholder = L.T("Spotlight Search", "Spotlight Araması");
         Placeholder.Text = placeholder;
         System.Windows.Automation.AutomationProperties.SetName(Query, placeholder);

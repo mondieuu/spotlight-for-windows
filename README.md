@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.6.1 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.7 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -26,8 +26,9 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | ⚙️ **Windows settings** | Wi-Fi, Bluetooth, Display, Windows Update, Dark mode… each one opens the right settings page directly. |
 | 📂 **Paste a path** | Paste `C:\Windows\notepad.exe` or a folder path to open it in File Explorer. |
 | 🎵 **MP3 / MP4 converter** | Paste a YouTube or Instagram link and save it as an MP4 video or an MP3 audio file with one key. |
-| 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
-| 🪟 **Liquid Glass** | Live, crystal-clear glass: videos and windows keep moving behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. To stay live, Spotlight hides itself from screenshots and screen recordings. Requires Windows 10 2004 or later; older versions show a still image. |
+| 🌗 **22 themes** | The same themes as the Mondium browser, from System, Light and Dark to Midnight, Forest and Sunset. Changes apply instantly. |
+| ⚔️ **Stalin sort** | Results are ordered with Stalin sort: anything out of order is eliminated, so the list stays short and the best match always survives. |
+| 🪟 **Liquid Glass** | Live, crystal-clear glass: videos and windows keep moving behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. It still shows in screenshots and streams such as Discord, so what you type is visible to viewers. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
 | 🔄 **Software Update** | Spotlight checks GitHub for new versions and updates itself in place with one click. No reinstalling, and your settings stay. |
 | 🖱️ **Stays out of the way** | Clicks on the empty area below the panel go straight to the window underneath. |
@@ -96,7 +97,7 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 
 | Setting | Options |
 |---|---|
-| **Theme** | System (follows Windows) · Light · Dark |
+| **Theme** | System, Light, Dark and 19 colored themes |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
 | **Web search** | Google · Bing · DuckDuckGo |
 | **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space, or just the Windows key |

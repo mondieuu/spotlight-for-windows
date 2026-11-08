@@ -34,6 +34,11 @@ public sealed class AppSettings
 
     private static string File_ => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Spotlight", "settings.json");
 
+    /// <summary>A theme from Themes.All. Empty on settings saved by older versions, which only had Theme.</summary>
+    public string ColorTheme { get; set; } = "";
+
+    public AppTheme CurrentTheme => ColorTheme.Length > 0 ? Themes.Find(ColorTheme) : Theme switch { ThemeMode.Light => Themes.Find("acik"), ThemeMode.Dark => Themes.Find("koyu"), _ => Themes.Find("sistem") };
+
     public bool IsTurkish => Language == "tr";
 
     /// <summary>Resolves "System" to the Windows app theme.</summary>
@@ -41,8 +46,9 @@ public sealed class AppSettings
     {
         get
         {
-            if (Theme == ThemeMode.Dark) return true;
-            if (Theme == ThemeMode.Light) return false;
+            var mode = CurrentTheme.Mode;
+            if (mode == "dark") return true;
+            if (mode == "light") return false;
             using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
             return key?.GetValue("AppsUseLightTheme") is not int v || v == 0;
         }

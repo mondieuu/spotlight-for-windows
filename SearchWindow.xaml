@@ -27,7 +27,8 @@
         <SolidColorBrush x:Key="Tint" Color="#7A1C1C1E" />
         <SolidColorBrush x:Key="Hairline" Color="#26FFFFFF" />
         <SolidColorBrush x:Key="Hover" Color="#14FFFFFF" />
-        <SolidColorBrush x:Key="Accent" Color="#0A84FF" />
+        <SolidColorBrush x:Key="Accent" Color="#A8C7FA" />
+        <SolidColorBrush x:Key="AccentFg" Color="#10141C" />
 
         <!-- Liquid Glass light rim: strong light from the top left, a counter-reflection at the bottom right. -->
         <LinearGradientBrush x:Key="Rim" StartPoint="0,0" EndPoint="1,1">
@@ -85,7 +86,7 @@
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Accent}" />
-                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="Foreground" Value="{DynamicResource AccentFg}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -138,8 +139,7 @@
         <StackPanel x:Name="ResultsContent" Width="720" SizeChanged="OnContentSizeChanged">
             <!-- Search field -->
             <Grid Height="68" Margin="24,0,24,0">
-                <TextBlock Text="&#xE721;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="22"
-                           Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" />
+                <Path Width="24" Height="24" Stretch="Uniform" Fill="{DynamicResource FgDim}" VerticalAlignment="Center" HorizontalAlignment="Left" Data="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
                 <TextBlock x:Name="Placeholder" Text="Spotlight Araması" Margin="40,0,0,0"
                            FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="24" FontWeight="Normal"
                            Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" IsHitTestVisible="False" />
