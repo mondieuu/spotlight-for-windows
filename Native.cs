@@ -121,6 +121,17 @@ internal static class Native
         return (info.rcWork, scale);
     }
 
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    /// <summary>Limits a window to a rectangle of this size; Windows owns the region afterwards.</summary>
+    public static void SetWindowRegion(IntPtr hwnd, int width, int height)
+    {
+        var region = CreateRectRgn(0, 0, width, height);
+        if (region != IntPtr.Zero && SetWindowRgn(hwnd, region, true) == 0) DeleteObject(region);
+    }
+
+    [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr hWnd, IntPtr region, bool redraw);
+
     /// <summary>Moves a window to physical coordinates; it takes the DPI of the monitor it lands on.</summary>
     public static void MoveWindowTo(IntPtr hwnd, int x, int y) =>
         SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010 /* no size, no z-order, no activate */);

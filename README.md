@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.6 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.6.1 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -30,6 +30,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | 🪟 **Liquid Glass** | Live, crystal-clear glass: videos and windows keep moving behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. To stay live, Spotlight hides itself from screenshots and screen recordings. Requires Windows 10 2004 or later; older versions show a still image. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
 | 🔄 **Software Update** | Spotlight checks GitHub for new versions and updates itself in place with one click. No reinstalling, and your settings stay. |
+| 🖱️ **Stays out of the way** | Clicks on the empty area below the panel go straight to the window underneath. |
 | 🧹 **Clean uninstall** | Uninstalling removes the program, index, settings, shortcuts and registry entries. Nothing is left behind. |
 
 ## Screenshots

@@ -255,6 +255,8 @@ public partial class SearchWindow : Window
 
         double startHeight = ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68;
         _height.Snap(startHeight);
+        _windowScale = scale;
+        SetClickArea(startHeight);
         // The first frame is built before the window appears; the glass then stays live until it closes.
         _backdrop = new Backdrop(glassX, glassY, (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale),
                                  scale, GlassRadius, startHeight, _captureExcluded, SetGlass);
@@ -357,7 +359,24 @@ public partial class SearchWindow : Window
     /// <summary>The live glass follows the panel: it needs to cover this height from now on.</summary>
     private void RequestGlass(double heightDip)
     {
-        if (heightDip > 0) _backdrop?.SetHeight(heightDip);
+        if (heightDip <= 0) return;
+        _backdrop?.SetHeight(heightDip);
+        SetClickArea(heightDip);
+    }
+
+    // Room below the panel for its soft shadow.
+    private const double ShadowBelow = 56;
+    private double _windowScale = 1;
+
+    /// <summary>
+    /// The window is taller than the panel. Cutting it down to the panel and its shadow lets clicks on the empty
+    /// part below reach the window underneath. (A non-layered window cannot be click-through any other way.)
+    /// </summary>
+    private void SetClickArea(double heightDip)
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        Native.SetWindowRegion(hwnd, (int)Math.Ceiling(Width * _windowScale), (int)Math.Ceiling((GlassTop + heightDip + ShadowBelow) * _windowScale));
     }
 
     private void SetGlass(ImageSource image) =>
