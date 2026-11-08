@@ -76,7 +76,8 @@ public sealed class SettingsWindow : Window
         };
         Rebuild();
         // Like Apple's Software Update pane: look for a new version as soon as Settings opens.
-        if (Updater.Status is Updater.State.Idle or Updater.State.Failed or Updater.State.UpToDate) _ = Updater.CheckAsync();
+        // Stays offline if automatic checks are turned off; "Check Now" still works.
+        if (AppSettings.Current.AutoCheckUpdates && Updater.Status is Updater.State.Idle or Updater.State.Failed or Updater.State.UpToDate) _ = Updater.CheckAsync();
     }
 
     /// <summary>Only theme and language changes redraw the window, so switches can finish their animation.</summary>

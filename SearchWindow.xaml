@@ -5,14 +5,20 @@
         Width="800"
         Height="712"
         WindowStyle="None"
-        AllowsTransparency="True"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
         Background="Transparent"
         WindowStartupLocation="Manual"
         FontFamily="Segoe UI Variable Text, Segoe UI"
-        UseLayoutRounding="True">
+        UseLayoutRounding="True"
+        PreviewMouseDown="OnWindowMouseDown">
+
+    <!-- Not a layered window (AllowsTransparency): Windows refuses to exclude those from screen capture, which the
+         live glass depends on. Transparency comes from the compositor instead, and it costs far less CPU. -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="0" ResizeBorderThickness="0" GlassFrameThickness="-1" CornerRadius="0" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
 
     <Window.Resources>
         <!-- Theme colours are switched in code for light/dark mode. -->
@@ -109,8 +115,8 @@
             </Border.Effect>
         </Border>
 
-        <!-- Blurred screen capture with refracted edges (refreshed in code on every open) -->
-        <Border x:Name="Glass" CornerRadius="28" Background="Transparent" SizeChanged="OnGlassSizeChanged" />
+        <!-- Live view of what is behind the window, with refracted edges (Backdrop.cs) -->
+        <Border x:Name="Glass" CornerRadius="28" Background="Transparent" />
 
         <!-- Tint -->
         <Border CornerRadius="28" Background="{DynamicResource Tint}" />

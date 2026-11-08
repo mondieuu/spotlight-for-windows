@@ -31,6 +31,7 @@ public static class Installer
     public static string InstalledExe => Path.Combine(InstallDir, AppName + ".exe");
     private static string DataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppName);
     private static string LegacyDataDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Odak");
+    private static string LegacyExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Odak", "Odak.exe");
     private static string BundleCache => Path.Combine(Path.GetTempPath(), ".net", AppName);
     private static string SetupBundleCache => Path.Combine(Path.GetTempPath(), ".net", AppName + "Setup");
     private static string StartMenuLink => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), AppName + ".lnk");
@@ -124,7 +125,7 @@ public static class Installer
             $"foreach ($i in 1..10) {{ foreach ($t in @({list})) {{ if (Test-Path -LiteralPath $t) {{ Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }} }}; " +
             $"if (-not (@({list}) | Where-Object {{ Test-Path -LiteralPath $_ }})) {{ break }}; Start-Sleep -Milliseconds 500 }}";
         var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
-        Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand {encoded}")
+        Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {encoded}")
         {
             CreateNoWindow = true,
             UseShellExecute = false,
@@ -132,9 +133,6 @@ public static class Installer
             WorkingDirectory = Path.GetTempPath(),
         });
     }
-
-    private static bool IsInstalledCopy() =>
-        string.Equals(Environment.ProcessPath, InstalledExe, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Closes running Spotlight instances (except this process).</summary>
     private static void StopOtherInstances()
@@ -145,6 +143,10 @@ public static class Installer
             try
             {
                 if (p.Id == me) continue;
+                // Only our own program: another app that happens to be called Spotlight or Odak is left alone.
+                var file = p.MainModule?.FileName;
+                if (!string.Equals(file, InstalledExe, StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(file, LegacyExe, StringComparison.OrdinalIgnoreCase)) continue;
                 p.Kill();
                 p.WaitForExit(3000);
             }

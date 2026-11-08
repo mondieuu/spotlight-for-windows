@@ -24,7 +24,7 @@ internal static class Native
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    // ---- Live glass: hide our own window from screen capture so we can see what is behind it.
+    // ---- Live glass: our window stays hidden from screen capture, so we can see what is behind it.
     public const uint WDA_NONE = 0x0, WDA_EXCLUDEFROMCAPTURE = 0x11;
 
     [DllImport("user32.dll")]
@@ -37,15 +37,14 @@ internal static class Native
     [DllImport("dwmapi.dll")]
     public static extern int DwmFlush();
 
-    // ---- Fast, downscaled screen capture (GDI StretchBlt with HALFTONE averaging)
+    // ---- Screen capture for the live glass
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr hWnd, IntPtr hdc);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
     [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
     [DllImport("gdi32.dll")] private static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
-    [DllImport("gdi32.dll")] private static extern int SetStretchBltMode(IntPtr hdc, int mode);
-    [DllImport("gdi32.dll")] private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr old);
-    [DllImport("gdi32.dll")] private static extern bool StretchBlt(IntPtr dst, int dx, int dy, int dw, int dh, IntPtr src, int sx, int sy, int sw, int sh, uint rop);
+    [DllImport("gdi32.dll")] private static extern bool BitBlt(IntPtr dst, int dx, int dy, int w, int h, IntPtr src, int sx, int sy, uint rop);
+    [DllImport("gdi32.dll")] private static extern bool GdiFlush();
     [DllImport("gdi32.dll")] private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi, uint usage, out IntPtr bits, IntPtr section, uint offset);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -56,35 +55,75 @@ internal static class Native
         public int biCompression, biSizeImage, biXPelsPerMeter, biYPelsPerMeter, biClrUsed, biClrImportant;
     }
 
-    private const int COLORONCOLOR = 3;
     private const uint SRCCOPY = 0x00CC0020;
 
-    /// <summary>Copies a screen rectangle straight into a smaller 32-bit pixel buffer (top-down BGRA).</summary>
-    public static int[]? CaptureScaled(int x, int y, int width, int height, int dw, int dh)
+    /// <summary>Copies screen rectangles into a reusable 32-bit bitmap, so a frame allocates nothing.</summary>
+    public sealed class ScreenGrabber : IDisposable
     {
-        IntPtr screen = GetDC(IntPtr.Zero), mem = IntPtr.Zero, dib = IntPtr.Zero, old = IntPtr.Zero;
-        try
+        private readonly IntPtr _screen, _mem, _dib, _old, _bits;
+        private bool _disposed;
+
+        public ScreenGrabber(int width, int maxHeight)
         {
-            mem = CreateCompatibleDC(screen);
-            var bmi = new BITMAPINFOHEADER { biSize = Marshal.SizeOf<BITMAPINFOHEADER>(), biWidth = dw, biHeight = -dh, biPlanes = 1, biBitCount = 32 };
-            dib = CreateDIBSection(screen, ref bmi, 0, out var bits, IntPtr.Zero, 0);
-            if (dib == IntPtr.Zero) return null;
-            old = SelectObject(mem, dib);
-            SetStretchBltMode(mem, COLORONCOLOR); // fast; the light blur afterwards smooths it
-            SetBrushOrgEx(mem, 0, 0, IntPtr.Zero);
-            if (!StretchBlt(mem, 0, 0, dw, dh, screen, x, y, width, height, SRCCOPY)) return null;
-            var pixels = new int[dw * dh];
-            Marshal.Copy(bits, pixels, 0, pixels.Length);
-            return pixels;
+            _screen = GetDC(IntPtr.Zero);
+            _mem = CreateCompatibleDC(_screen);
+            var bmi = new BITMAPINFOHEADER { biSize = Marshal.SizeOf<BITMAPINFOHEADER>(), biWidth = width, biHeight = -maxHeight, biPlanes = 1, biBitCount = 32 };
+            _dib = CreateDIBSection(_screen, ref bmi, 0, out _bits, IntPtr.Zero, 0);
+            if (_dib != IntPtr.Zero) _old = SelectObject(_mem, _dib);
         }
-        finally
+
+        /// <summary>Copies the rectangle into <paramref name="pixels"/> (top-down BGRX); false if the screen cannot be read.</summary>
+        public bool Copy(int x, int y, int width, int height, int[] pixels)
         {
-            if (old != IntPtr.Zero) SelectObject(mem, old);
-            if (dib != IntPtr.Zero) DeleteObject(dib);
-            if (mem != IntPtr.Zero) DeleteDC(mem);
-            ReleaseDC(IntPtr.Zero, screen);
+            if (_disposed || _dib == IntPtr.Zero) return false;
+            if (!BitBlt(_mem, 0, 0, width, height, _screen, x, y, SRCCOPY)) return false;
+            GdiFlush();
+            Marshal.Copy(_bits, pixels, 0, width * height);
+            return true;
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_old != IntPtr.Zero) SelectObject(_mem, _old);
+            if (_dib != IntPtr.Zero) DeleteObject(_dib);
+            if (_mem != IntPtr.Zero) DeleteDC(_mem);
+            ReleaseDC(IntPtr.Zero, _screen);
         }
     }
+
+    // ---- The monitor under the mouse
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+
+    [DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(POINT p, uint flags);
+    [DllImport("user32.dll")] private static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint dpiX, out uint dpiY);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(int processId);
+
+    /// <summary>Work area (physical pixels) and scale of the monitor the mouse is on; null if unknown.</summary>
+    public static (RECT work, double scale)? MonitorUnderCursor()
+    {
+        if (!GetCursorPos(out var p)) return null;
+        var monitor = MonitorFromPoint(p, 2 /* nearest */);
+        var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref info)) return null;
+        double scale = GetDpiForMonitor(monitor, 0, out var dpi, out _) == 0 ? dpi / 96.0 : 1;
+        return (info.rcWork, scale);
+    }
+
+    /// <summary>Moves a window to physical coordinates; it takes the DPI of the monitor it lands on.</summary>
+    public static void MoveWindowTo(IntPtr hwnd, int x, int y) =>
+        SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010 /* no size, no z-order, no activate */);
 
     // ---- Shell icons (the real icons of Start menu apps)
     [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

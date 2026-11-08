@@ -27,7 +27,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | 📂 **Paste a path** | Paste `C:\Windows\notepad.exe` or a folder path to open it in File Explorer. |
 | 🎵 **MP3 / MP4 converter** | Paste a YouTube or Instagram link and save it as an MP4 video or an MP3 audio file with one key. |
 | 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
-| 🪟 **Liquid Glass** | Crystal-clear glass that shows what is behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. |
+| 🪟 **Liquid Glass** | Live, crystal-clear glass: videos and windows keep moving behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. To stay live, Spotlight hides itself from screenshots and screen recordings. Requires Windows 10 2004 or later; older versions show a still image. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
 | 🔄 **Software Update** | Spotlight checks GitHub for new versions and updates itself in place with one click. No reinstalling, and your settings stay. |
 | 🧹 **Clean uninstall** | Uninstalling removes the program, index, settings, shortcuts and registry entries. Nothing is left behind. |
@@ -150,9 +150,9 @@ Your downloaded MP3/MP4 files (**Downloads\Spotlight**) are yours. They are only
 Spotlight runs entirely on your PC. Searches, file names and usage data are **never sent anywhere**, and there is no telemetry. It only goes online when you ask it to:
 
 - A web search you choose sends your query to the search engine you picked, in your browser.
-- The first use of the converter downloads its tools.
+- The first use of the converter downloads its tools, which are verified against their published SHA-256 checksums.
 - A download you start fetches that video or audio.
-- The update check reads the latest release info from GitHub (no personal data is sent).
+- The update check reads the latest release info from GitHub (no personal data is sent). A downloaded update only runs if it matches the SHA-256 digest GitHub publishes for it.
 
 ## Build from source
 
@@ -176,7 +176,7 @@ Rename `publish\Spotlight.exe` to `SpotlightSetup.exe`: an exe with "Setup" in i
 |---|---|
 | `SearchWindow.xaml(.cs)` | Search window, results, keyboard, web fallback |
 | `SettingsWindow.cs` · `Settings.cs` | Settings window, preferences and English/Turkish text |
-| `Backdrop.cs` | Liquid Glass background: blur, vibrancy, edge refraction |
+| `Backdrop.cs` | Live Liquid Glass: screen capture loop, vibrancy, edge refraction |
 | `Spring.cs` | Apple-style spring animations (response + damping) |
 | `AppIndex.cs` · `Catalog.cs` | App index and bilingual Windows catalog; scoring and typo tolerance |
 | `FileIndex.cs` | Whole-disk file index, live watching, parallel search |

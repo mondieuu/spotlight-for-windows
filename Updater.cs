@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,7 +21,7 @@ public static class Updater
 
     public enum State { Idle, Checking, UpToDate, Available, Downloading, Failed }
 
-    public sealed record Release(Version Version, string Tag, string DownloadUrl, long Size);
+    public sealed record Release(Version Version, string Tag, string DownloadUrl, long Size, string Sha256);
 
     public static State Status { get; private set; } = State.Idle;
     public static Release? Latest { get; private set; }
@@ -79,16 +80,21 @@ public static class Updater
             var tag = root.GetProperty("tag_name").GetString() ?? "";
             string? url = null;
             long size = 0;
+            string? sha256 = null;
             foreach (var asset in root.GetProperty("assets").EnumerateArray())
             {
                 if (!string.Equals(asset.GetProperty("name").GetString(), AssetName, StringComparison.OrdinalIgnoreCase)) continue;
                 url = asset.GetProperty("browser_download_url").GetString();
                 size = asset.GetProperty("size").GetInt64();
+                // GitHub publishes each asset's digest as "sha256:<hex>".
+                if (asset.TryGetProperty("digest", out var digest) && digest.GetString() is { } d && d.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                    sha256 = d["sha256:".Length..];
             }
             var version = Normalize(tag);
-            if (url != null && version > Current && url.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
+            // A release that cannot be verified is never offered.
+            if (url != null && sha256 != null && version > Current && url.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
             {
-                Latest = new Release(version, tag, url, size);
+                Latest = new Release(version, tag, url, size, sha256);
                 Set(State.Available);
             }
             else
@@ -118,24 +124,37 @@ public static class Updater
         {
             Directory.CreateDirectory(UpdateDir);
             var file = Path.Combine(UpdateDir, AssetName);
+            var partial = file + ".part";
             using var http = NewClient();
             using var response = await http.GetAsync(release.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
             response.EnsureSuccessStatusCode();
             long total = response.Content.Headers.ContentLength ?? release.Size;
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             await using (var input = await response.Content.ReadAsStreamAsync())
-            await using (var output = File.Create(file))
+            await using (var output = File.Create(partial))
             {
                 var buffer = new byte[1 << 16];
                 long done = 0;
-                int read;
+                int read, shown = -1;
                 while ((read = await input.ReadAsync(buffer)) > 0)
                 {
                     await output.WriteAsync(buffer.AsMemory(0, read));
+                    hash.AppendData(buffer, 0, read);
                     done += read;
-                    if (total > 0) { Progress = (double)done / total; Changed?.Invoke(); }
+                    if (total <= 0) continue;
+                    Progress = (double)done / total;
+                    // Listeners redraw: tell them once per percent, not on every read.
+                    int percent = (int)(Progress * 100);
+                    if (percent != shown) { shown = percent; Changed?.Invoke(); }
                 }
             }
-            if (release.Size > 0 && new FileInfo(file).Length != release.Size) throw new IOException("The download is incomplete.");
+            // Only a file matching the digest GitHub published is ever run.
+            if (!Convert.ToHexString(hash.GetHashAndReset()).Equals(release.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(partial);
+                throw new IOException(L.T("The download failed verification and was deleted.", "İndirilen dosya doğrulanamadı ve silindi."));
+            }
+            File.Move(partial, file, overwrite: true);
             return file;
         }
         catch (Exception ex)

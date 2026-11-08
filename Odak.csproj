@@ -14,6 +14,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.4.0</Version>
     <Product>Spotlight</Product>
+    <!-- A background tray app: fewer GC threads and less reserved memory. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
 
   <!-- Distribution: a single compressed exe that also runs on PCs without .NET installed. -->

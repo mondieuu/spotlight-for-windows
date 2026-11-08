@@ -39,6 +39,7 @@ public static class FileIndex
     private static readonly List<FileSystemWatcher> Watchers = new();
     private static int _scanning;
     private static Timer? _timer;
+    private static DateTime _lastOverflowScan = DateTime.MinValue;
 
     public static bool IsReady => _snap.Count > 0;
     public static bool IsScanning => _scanning == 1;
@@ -93,12 +94,13 @@ public static class FileIndex
         {
             try
             {
-                var started = DateTime.Now;
+                // Changes from before the scan are in the new snapshot. Ones arriving during it may not be, so they stay.
+                var addedBefore = Added.Keys.ToArray();
+                var removedBefore = Removed.Keys.ToArray();
                 var snap = Scan();
                 _snap = snap;
-                // Changes that arrived during the scan are already in the snapshot; clear the old ones.
-                foreach (var key in Added.Keys) if (File.GetLastWriteTime(key) < started) Added.TryRemove(key, out _);
-                Removed.Clear();
+                foreach (var key in addedBefore) Added.TryRemove(key, out _);
+                foreach (var key in removedBefore) Removed.TryRemove(key, out _);
                 Save(snap);
             }
             catch { }
@@ -127,6 +129,8 @@ public static class FileIndex
         var parent = new List<int>(500_000);
         var flags = new List<byte>(500_000);
         var stack = new Stack<(string path, int index)>();
+        // Most file names repeat (index.js, icon.png…): each distinct name is stored only once, which saves a lot of memory.
+        var pool = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var drive in DriveInfo.GetDrives())
         {
@@ -158,7 +162,7 @@ public static class FileIndex
                     if (SkipNames.Contains(e.Name)) continue;
                     var full = Path.Join(dir, e.Name);
                     if (SkipPaths.Contains(full)) continue;
-                    names.Add(e.Name);
+                    names.Add(Pooled(pool, e.Name));
                     parent.Add(index);
                     flags.Add(FlagDir);
                     bool link = (e.Attr & FileAttributes.ReparsePoint) != 0 && (e.Attr & CloudAttrs) == 0;
@@ -166,7 +170,7 @@ public static class FileIndex
                 }
                 else
                 {
-                    names.Add(e.Name);
+                    names.Add(Pooled(pool, e.Name));
                     parent.Add(index);
                     flags.Add(0);
                 }
@@ -175,10 +179,18 @@ public static class FileIndex
         return new Snapshot { Names = names.ToArray(), Parent = parent.ToArray(), Flags = flags.ToArray(), Count = names.Count };
     }
 
+    private static string Pooled(Dictionary<string, string> pool, string name)
+    {
+        if (pool.TryGetValue(name, out var existing)) return existing;
+        pool[name] = name;
+        return name;
+    }
+
     private static bool Skipped(string fullPath)
     {
         foreach (var skip in SkipPaths)
-            if (fullPath.StartsWith(skip, StringComparison.OrdinalIgnoreCase)) return true;
+            if (fullPath.Equals(skip, StringComparison.OrdinalIgnoreCase) ||
+                (fullPath.Length > skip.Length && fullPath[skip.Length] == '\\' && fullPath.StartsWith(skip, StringComparison.OrdinalIgnoreCase))) return true;
         foreach (var part in fullPath.Split('\\'))
             if (SkipNames.Contains(part)) return true;
         return false;
@@ -202,6 +214,13 @@ public static class FileIndex
                 w.Created += (_, e) => OnAdded(e.FullPath);
                 w.Renamed += (_, e) => { OnRemoved(e.OldFullPath); OnAdded(e.FullPath); };
                 w.Deleted += (_, e) => OnRemoved(e.FullPath);
+                // Too many changes at once overflow the watcher and some are lost: scan again, at most every 10 minutes.
+                w.Error += (_, _) =>
+                {
+                    if (DateTime.UtcNow - _lastOverflowScan < TimeSpan.FromMinutes(10)) return;
+                    _lastOverflowScan = DateTime.UtcNow;
+                    Rescan();
+                };
                 w.EnableRaisingEvents = true;
                 Watchers.Add(w);
             }
@@ -322,6 +341,15 @@ public static class FileIndex
         return Math.Min(path.Count(c => c == '\\') * 4, 40);
     }
 
+    /// <summary>The path, or a folder containing it, was deleted since the last scan.</summary>
+    private static bool IsRemoved(string path)
+    {
+        if (Removed.IsEmpty) return false;
+        for (string? p = path; !string.IsNullOrEmpty(p); p = Path.GetDirectoryName(p))
+            if (Removed.ContainsKey(p)) return true;
+        return false;
+    }
+
     /// <summary>Searches file and folder names; returns the best <paramref name="max"/> results.</summary>
     public static List<FileHit> Search(string query, int max, CancellationToken ct)
     {
@@ -359,7 +387,7 @@ public static class FileIndex
         foreach (var (index, score) in bag.SelectMany(b => b).OrderByDescending(x => x.score).Take(Keep * 2))
         {
             var path = FullPath(s, index);
-            if (Removed.ContainsKey(path)) continue;
+            if (IsRemoved(path)) continue;
             hits.Add(new FileHit(path, s.Flags[index] == FlagDir, score - Penalty(path)));
         }
         foreach (var (path, isDir) in Added)
@@ -406,9 +434,10 @@ public static class FileIndex
             if (r.ReadInt32() != 1) return false;
             int count = r.ReadInt32();
             var s = new Snapshot { Names = new string[count], Parent = new int[count], Flags = new byte[count], Count = count };
+            var pool = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
             {
-                s.Names[i] = r.ReadString();
+                s.Names[i] = Pooled(pool, r.ReadString());
                 s.Parent[i] = r.ReadInt32();
                 s.Flags[i] = r.ReadByte();
             }

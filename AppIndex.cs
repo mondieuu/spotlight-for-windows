@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -128,8 +129,8 @@ public static class Text
 /// </summary>
 public static class AppIndex
 {
-    private static readonly string[] Junk =
-        { "uninstall", "kaldir", "readme", "release notes", "documentation", "website", "help", "yardim", "lisans", "license" };
+    // Whole words only: "Help" is junk, but "HelpDesk Pro" or "Helper Studio" are real apps.
+    private static readonly Regex Junk = new(@"\b(uninstall|kaldir|readme|release notes|documentation|website|help|yardim|lisans|license)\b", RegexOptions.CultureInvariant);
 
     private static List<AppEntry> _apps = new();
     private static DateTime _loadedAt = DateTime.MinValue;
@@ -183,7 +184,7 @@ public static class AppIndex
                 string path = item.Path;
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(path)) continue;
                 var folded = Text.Fold(name);
-                if (Junk.Any(j => folded.Contains(j))) continue;
+                if (Junk.IsMatch(folded)) continue;
                 list.Add(new AppEntry(name, path) { IconPath = "shell:AppsFolder\\" + path });
             }
         }

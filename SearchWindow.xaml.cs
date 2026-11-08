@@ -21,6 +21,7 @@ public partial class SearchWindow : Window
     private readonly ObservableCollection<ResultItem> _items = new();
     private CancellationTokenSource? _fileSearch;
     private Backdrop? _backdrop;
+    private bool _captureExcluded;
     private ResultItem? _webRow;
     private static readonly ConcurrentDictionary<string, ImageSource?> IconCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -72,16 +73,8 @@ public partial class SearchWindow : Window
     {
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
-        var s = AppSettings.Current;
-        if (Native.RegisterHotKey(hwnd, HotkeyId, s.HotkeyModifiers | Native.MOD_NOREPEAT, s.HotkeyKey))
-        {
-            HotkeyText = FormatHotkey(s.HotkeyModifiers, s.HotkeyKey);
-        }
-        else if (Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE))
-        {
-            // The chosen shortcut is taken by another app (e.g. PowerToys Run): fall back to Ctrl+Space.
-            HotkeyText = FormatHotkey(Native.MOD_CONTROL, Native.VK_SPACE);
-        }
+        HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor = Colors.Transparent;
+        RegisterSavedHotkey(hwnd);
         _ = AppIndex.RefreshAsync(force: true);
         FileIndex.Start();
     }
@@ -118,10 +111,20 @@ public partial class SearchWindow : Window
 
     public void ResumeHotkey()
     {
+        RegisterSavedHotkey(new WindowInteropHelper(this).Handle);
+        HotkeyChanged?.Invoke();
+    }
+
+    /// <summary>Registers the saved shortcut, or Ctrl+Space if another app (e.g. PowerToys Run) already uses it.</summary>
+    private void RegisterSavedHotkey(IntPtr hwnd)
+    {
         var s = AppSettings.Current;
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (!Native.RegisterHotKey(hwnd, HotkeyId, s.HotkeyModifiers | Native.MOD_NOREPEAT, s.HotkeyKey))
-            Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE);
+        if (Native.RegisterHotKey(hwnd, HotkeyId, s.HotkeyModifiers | Native.MOD_NOREPEAT, s.HotkeyKey))
+            HotkeyText = FormatHotkey(s.HotkeyModifiers, s.HotkeyKey);
+        else if (Native.RegisterHotKey(hwnd, HotkeyId, Native.MOD_CONTROL | Native.MOD_NOREPEAT, Native.VK_SPACE))
+            HotkeyText = FormatHotkey(Native.MOD_CONTROL, Native.VK_SPACE);
+        else
+            HotkeyText = L.T("no shortcut", "kısayol yok");
     }
 
     /// <summary>"Alt + Space", "Ctrl + Shift + K"…</summary>
@@ -177,25 +180,41 @@ public partial class SearchWindow : Window
             return;
         }
         ApplyAppearance();
-        // Like macOS: centred, about a fifth of the way down the screen.
-        var area = SystemParameters.WorkArea;
-        Left = area.Left + (area.Width - Width) / 2;
-        Top = area.Top + area.Height * 0.2 - GlassTop;
+        // Like macOS: centred, about a fifth of the way down the screen the mouse is on.
+        var hwnd = new WindowInteropHelper(this).Handle;
+        // The live glass reads the screen behind the window and must never see itself.
+        // Side effect: Spotlight does not appear in screenshots or screen recordings.
+        _captureExcluded = Native.SetWindowDisplayAffinity(hwnd, Native.WDA_EXCLUDEFROMCAPTURE)
+                           && Native.GetWindowDisplayAffinity(hwnd, out var affinity) && affinity == Native.WDA_EXCLUDEFROMCAPTURE;
+        int glassX, glassY;
+        double scale;
+        if (Native.MonitorUnderCursor() is { } monitor)
+        {
+            scale = monitor.scale;
+            int x = monitor.work.Left + (monitor.work.Right - monitor.work.Left - (int)Math.Round(Width * scale)) / 2;
+            int y = monitor.work.Top + (int)((monitor.work.Bottom - monitor.work.Top) * 0.2) - (int)Math.Round(GlassTop * scale);
+            Native.MoveWindowTo(hwnd, x, y); // while hidden; the window takes that monitor's DPI here
+            Left = x / scale;
+            Top = y / scale;
+            glassX = x + (int)Math.Round(GlassLeft * scale);
+            glassY = y + (int)Math.Round(GlassTop * scale);
+        }
+        else
+        {
+            var area = SystemParameters.WorkArea;
+            Left = area.Left + (area.Width - Width) / 2;
+            Top = area.Top + area.Height * 0.2 - GlassTop;
+            scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            glassX = (int)Math.Round((Left + GlassLeft) * scale);
+            glassY = (int)Math.Round((Top + GlassTop) * scale);
+        }
 
-        // Capture the screen behind the window before it appears; the glass is built from it and then kept live.
-        // The window is excluded from capture first: otherwise a lingering frame of its last showing could be
-        // captured, and the tint would stack up on every reopen (darker each time in dark mode, brighter in light).
-        var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        _captureRect = new System.Drawing.Rectangle(
-            (int)Math.Round((Left + GlassLeft) * scale), (int)Math.Round((Top + GlassTop) * scale),
-            (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale));
-        _captureScale = scale;
-        _backdrop = CaptureBehind();
         double startHeight = ResultsContent.ActualHeight > 0 ? ResultsContent.ActualHeight : 68;
         _height.Snap(startHeight);
-        _renderVersion++;
-        if (_backdrop != null) SetGlass(_backdrop.Render(GlassWidth, startHeight, GlassRadius));
-        else Glass.Background = Brushes.Transparent;
+        // The first frame is built before the window appears; the glass then stays live until it closes.
+        _backdrop = new Backdrop(glassX, glassY, (int)Math.Round(GlassWidth * scale), (int)Math.Round(GlassMaxHeight * scale),
+                                 scale, GlassRadius, startHeight, _captureExcluded, SetGlass);
+        _backdrop.Start();
         _closing = false;
         _open.Snap(0);
         Show();
@@ -219,9 +238,24 @@ public partial class SearchWindow : Window
             if (!_closing) return;
             _closing = false;
             Hide();
+            // Must be undone while hidden and set again on the next open: otherwise, after a Hide/Show cycle,
+            // Windows returns this window's area as solid black to screen capture (measured on Windows 10 21H2).
+            Native.SetWindowDisplayAffinity(new WindowInteropHelper(this).Handle, Native.WDA_NONE);
+            // Nothing runs while hidden: the capture thread stops and its buffers are released.
+            _backdrop?.Stop();
+            _backdrop = null;
+            Glass.Background = Brushes.Transparent;
+            _pressed = null;
+            _pressSprings.Clear();
             // Start clean next time; running downloads continue in the background.
             if (!_items.Any(i => i.IsBusy)) Query.Text = "";
         });
+    }
+
+    /// <summary>The window is larger than the panel: a click on its see-through part counts as clicking elsewhere.</summary>
+    private void OnWindowMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!Panel.IsMouseOver) HideSpotlight();
     }
 
     // ---- Panel height (springs as the content changes)
@@ -276,26 +310,10 @@ public partial class SearchWindow : Window
 
     // ---- Glass
 
-    private System.Drawing.Rectangle _captureRect;
-    private double _captureScale = 1;
-    private int _renderVersion;
-
-    private void OnGlassSizeChanged(object sender, SizeChangedEventArgs e) { }
-
-    /// <summary>
-    /// Renders the refracted glass for the given height on a background thread; only the newest request is
-    /// applied. Nothing heavy runs on the UI thread, so typing and the spring animation stay smooth.
-    /// </summary>
+    /// <summary>The live glass follows the panel: it needs to cover this height from now on.</summary>
     private void RequestGlass(double heightDip)
     {
-        var backdrop = _backdrop;
-        if (backdrop == null || heightDip <= 0) return;
-        int version = ++_renderVersion;
-        var ui = TaskScheduler.FromCurrentSynchronizationContext();
-        Task.Run(() => backdrop.Render(GlassWidth, heightDip, GlassRadius)).ContinueWith(t =>
-        {
-            if (version == _renderVersion && t.Status == TaskStatus.RanToCompletion && backdrop == _backdrop) SetGlass(t.Result);
-        }, ui);
+        if (heightDip > 0) _backdrop?.SetHeight(heightDip);
     }
 
     private void SetGlass(ImageSource image) =>
@@ -305,40 +323,6 @@ public partial class SearchWindow : Window
             AlignmentX = AlignmentX.Left,
             AlignmentY = AlignmentY.Top,
         };
-
-    /// <summary>
-    /// Hides (or shows) the window from screen capture and checks that Windows really applied it.
-    /// Runs on the UI thread. The window always stays fully visible on the monitor itself.
-    /// </summary>
-    private bool SetExcluded(bool exclude)
-    {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == IntPtr.Zero) return false;
-        Native.SetWindowDisplayAffinity(hwnd, exclude ? Native.WDA_EXCLUDEFROMCAPTURE : Native.WDA_NONE);
-        return Native.GetWindowDisplayAffinity(hwnd, out var current) && current == (exclude ? Native.WDA_EXCLUDEFROMCAPTURE : Native.WDA_NONE);
-    }
-
-    /// <summary>
-    /// Captures only what is behind the glass, never the glass itself: the window is excluded from screen
-    /// capture for this one snapshot, taken while the window is still hidden (its last frame faded to fully
-    /// transparent). There is no live refresh, so a frame of the glass can never end up inside the glass
-    /// (that is what made it stack up and darken or brighten).
-    /// </summary>
-    private Backdrop? CaptureBehind()
-    {
-        var rect = _captureRect;
-        SetExcluded(true);
-        try
-        {
-            Native.DwmFlush();
-            Native.DwmFlush();
-            return Backdrop.Capture(rect.X, rect.Y, rect.Width, rect.Height, _captureScale);
-        }
-        finally
-        {
-            SetExcluded(false);
-        }
-    }
 
     // ---- Appearance (Light / Dark / follow Windows) and language
 
@@ -587,12 +571,33 @@ public partial class SearchWindow : Window
         if (t.StartsWith("file:///", StringComparison.OrdinalIgnoreCase) && Uri.TryCreate(t, UriKind.Absolute, out var fileUri)) t = fileUri.LocalPath;
         t = Environment.ExpandEnvironmentVariables(t);
         if (t.StartsWith("~")) t = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + t[1..];
+        if (t.Contains('"')) return null; // never a valid path, and it could break out of Explorer's quoted argument
         bool looksLikePath = Regex.IsMatch(t, @"^[A-Za-z]:([\\/]|$)") || t.StartsWith(@"\\");
         return looksLikePath ? t.Replace('/', '\\') : null;
     }
 
+    /// <summary>UNC paths and mapped network drives: checking them could block typing and contact that server.</summary>
+    private static bool IsNetworkPath(string path)
+    {
+        if (path.StartsWith(@"\\")) return true;
+        try { return new DriveInfo(path[..1]).DriveType == DriveType.Network; }
+        catch { return false; }
+    }
+
     private ResultItem PathItem(string path)
     {
+        // A network location is only touched if the user actually opens it, never while typing.
+        if (IsNetworkPath(path))
+        {
+            return new ResultItem
+            {
+                Title = path,
+                Subtitle = L.T("Open network location in File Explorer", "Ağ konumunu Dosya Gezgini'nde aç"),
+                Glyph = "\uE774",
+                GlyphBackground = Solid(0x0A, 0x84, 0xFF),
+                Run = _ => { Explorer($"\"{path}\""); return Task.FromResult(false); },
+            };
+        }
         if (File.Exists(path))
         {
             return new ResultItem
@@ -702,6 +707,7 @@ public partial class SearchWindow : Window
             else if (row.FilePath is { } path)
             {
                 if (IconCache.TryGetValue(path, out var cached)) { if (cached != null) row.Icon = cached; continue; }
+                if (IconCache.Count > 256) IconCache.Clear();
                 Native.ShellIconAsync(path, 64).ContinueWith(t =>
                 {
                     IconCache[path] = t.Result;

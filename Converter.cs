@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -15,12 +16,15 @@ namespace Odak;
 
 /// <summary>
 /// Downloads YouTube and Instagram links as MP3/MP4. Uses the open-source yt-dlp and ffmpeg;
-/// both are downloaded on first use from their official GitHub releases into %LOCALAPPDATA%\Odak\tools.
+/// both are downloaded on first use from their official GitHub releases into %LOCALAPPDATA%\Spotlight\tools
+/// and checked against the SHA-256 checksums those releases publish before they are ever run.
 /// </summary>
 public static class Converter
 {
     private const string YtDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
     private const string FfmpegUrl = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+    private const string YtDlpSums = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS";
+    private const string FfmpegSums = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/checksums.sha256";
 
     private static readonly HttpClient Http = CreateHttp();
     private static readonly SemaphoreSlim ToolsLock = new(1, 1);
@@ -43,7 +47,7 @@ public static class Converter
     public static bool IsSupported(Uri uri)
     {
         var host = uri.Host.ToLowerInvariant();
-        return host == "youtu.be" || host.EndsWith("youtube.com") || host.EndsWith("instagram.com");
+        return host == "youtu.be" || host == "youtube.com" || host.EndsWith(".youtube.com") || host == "instagram.com" || host.EndsWith(".instagram.com");
     }
 
     /// <summary>Downloads and converts; returns the file's full path when done.</summary>
@@ -54,7 +58,7 @@ public static class Converter
 
         var args = new List<string>
         {
-            "--newline", "--no-playlist", "--no-mtime",
+            "--ignore-config", "--newline", "--no-playlist", "--no-mtime",
             "--ffmpeg-location", ToolsDir,
             "-o", Path.Combine(OutputDir, "%(title).120B [%(id)s].%(ext)s"),
             "--print", "after_move:filepath", "--no-simulate",
@@ -99,7 +103,7 @@ public static class Converter
         await proc.WaitForExitAsync(ct);
         if (proc.ExitCode != 0)
         {
-            var err = errors.ToString().Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("ERROR")) ?? "Bilinmeyen hata.";
+            var err = errors.ToString().Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("ERROR")) ?? L.T("Unknown error.", "Bilinmeyen hata.");
             throw new InvalidOperationException(err.Replace("ERROR: ", ""));
         }
         return outputPath ?? OutputDir;
@@ -114,7 +118,8 @@ public static class Converter
             Directory.CreateDirectory(ToolsDir);
             if (!File.Exists(YtDlp))
             {
-                await DownloadFileAsync(YtDlpUrl, YtDlp, f => progress.Report((f * 0.2, L.T($"Downloading the converter (1/2)… {f * 100:0}%", $"Dönüştürücü indiriliyor (1/2)… %{f * 100:0}"))), ct);
+                var sum = await ExpectedHashAsync(YtDlpSums, "yt-dlp.exe", ct);
+                await DownloadFileAsync(YtDlpUrl, YtDlp, sum, f => progress.Report((f * 0.2, L.T($"Downloading the converter (1/2)… {f * 100:0}%", $"Dönüştürücü indiriliyor (1/2)… %{f * 100:0}"))), ct);
             }
             else if (DateTime.Now - File.GetLastWriteTime(YtDlp) > TimeSpan.FromDays(7))
             {
@@ -130,8 +135,10 @@ public static class Converter
 
             if (!File.Exists(Ffmpeg))
             {
-                var zip = Path.Combine(Path.GetTempPath(), "odak-ffmpeg.zip");
-                await DownloadFileAsync(FfmpegUrl, zip, f => progress.Report((0.2 + f * 0.6, L.T($"Downloading the audio/video component (2/2)… {f * 100:0}%", $"Ses/video bileşeni indiriliyor (2/2)… %{f * 100:0}"))), ct);
+                // Inside our own folder: a fixed name in the shared temp folder could be swapped before it is unpacked.
+                var zip = Path.Combine(ToolsDir, "ffmpeg.zip");
+                var sum = await ExpectedHashAsync(FfmpegSums, "ffmpeg-master-latest-win64-gpl.zip", ct);
+                await DownloadFileAsync(FfmpegUrl, zip, sum, f => progress.Report((0.2 + f * 0.6, L.T($"Downloading the audio/video component (2/2)… {f * 100:0}%", $"Ses/video bileşeni indiriliyor (2/2)… %{f * 100:0}"))), ct);
                 progress.Report((0.8, L.T("Installing components…", "Bileşenler kuruluyor…")));
                 await Task.Run(() =>
                 {
@@ -150,9 +157,22 @@ public static class Converter
         finally { ToolsLock.Release(); }
     }
 
-    private static async Task DownloadFileAsync(string url, string target, Action<double> onProgress, CancellationToken ct)
+    /// <summary>Reads a tool's published checksum list ("&lt;hex&gt;  &lt;file name&gt;" lines).</summary>
+    private static async Task<string> ExpectedHashAsync(string sumsUrl, string fileName, CancellationToken ct)
+    {
+        var sums = await Http.GetStringAsync(sumsUrl, ct);
+        foreach (var line in sums.Split('\n'))
+        {
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 && parts[1].TrimStart('*').Trim() == fileName && parts[0].Length == 64) return parts[0];
+        }
+        throw new InvalidOperationException(L.T($"No published checksum for {fileName}.", $"{fileName} için yayımlanmış sağlama değeri yok."));
+    }
+
+    private static async Task DownloadFileAsync(string url, string target, string sha256, Action<double> onProgress, CancellationToken ct)
     {
         var tmp = target + ".part";
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         using (var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))
         {
             response.EnsureSuccessStatusCode();
@@ -165,9 +185,15 @@ public static class Converter
             while ((n = await src.ReadAsync(buffer, ct)) > 0)
             {
                 await dst.WriteAsync(buffer.AsMemory(0, n), ct);
+                hash.AppendData(buffer, 0, n);
                 read += n;
                 if (total > 0) onProgress((double)read / total);
             }
+        }
+        if (!Convert.ToHexString(hash.GetHashAndReset()).Equals(sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            try { File.Delete(tmp); } catch { }
+            throw new InvalidOperationException(L.T("The download failed verification and was deleted.", "İndirilen dosya doğrulanamadı ve silindi."));
         }
         File.Move(tmp, target, true);
     }

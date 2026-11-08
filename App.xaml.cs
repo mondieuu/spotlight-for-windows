@@ -15,6 +15,7 @@ namespace Odak;
 public partial class App : Application
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ShowSignal = "Spotlight.Show", SettingsSignal = "Spotlight.ShowSettings";
     private Mutex? _single;
     private SearchWindow? _window;
     private Forms.NotifyIcon? _tray;
@@ -60,6 +61,17 @@ public partial class App : Application
         _single = new Mutex(true, "Spotlight.TekKopya", out bool first);
         if (!first)
         {
+            // Already running: ask that instance to show itself, so a shortcut click is never ignored.
+            if (!e.Args.Contains("--tray"))
+            {
+                Native.AllowSetForegroundWindow(-1);
+                var name = e.Args.Contains("--settings") ? SettingsSignal : ShowSignal;
+                if (EventWaitHandle.TryOpenExisting(name, out var signal))
+                {
+                    signal.Set();
+                    signal.Dispose();
+                }
+            }
             Shutdown();
             return;
         }
@@ -68,6 +80,7 @@ public partial class App : Application
         _window.InitializeHidden();
         _window.Notify = ShowNotification;
         CreateTray();
+        ListenForSecondLaunch();
 
         // Show once on first launch as a reminder of the shortcut.
         if (!e.Args.Contains("--tray")) _window.ShowSpotlight();
@@ -82,13 +95,41 @@ public partial class App : Application
                         L.T($"You are now on version {Installer.Version}.", $"Artık {Installer.Version} sürümünü kullanıyorsun."), null);
     }
 
+    /// <summary>Waits (without using CPU) for another launch asking this instance to show itself.</summary>
+    private void ListenForSecondLaunch()
+    {
+        var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignal);
+        var settings = new EventWaitHandle(false, EventResetMode.AutoReset, SettingsSignal);
+        var handles = new WaitHandle[] { show, settings };
+        new Thread(() =>
+        {
+            while (true)
+            {
+                int which = WaitHandle.WaitAny(handles);
+                Dispatcher.BeginInvoke(() =>
+                {
+                    if (_window == null) return;
+                    if (which == 0) _window.ShowSpotlight();
+                    else SettingsWindow.Open(_window);
+                });
+            }
+        })
+        { IsBackground = true, Name = "Spotlight second launch" }.Start();
+    }
+
     // ---- Software Update
 
     private Version? _announced;
+    private Updater.State _menuState = Updater.State.Idle;
 
     private void OnUpdaterChanged()
     {
-        BuildMenu();
+        // Progress ticks do not change the menu: rebuild it only when the state changes.
+        if (Updater.Status != _menuState)
+        {
+            _menuState = Updater.Status;
+            BuildMenu();
+        }
         if (Updater.Status == Updater.State.Available && Updater.Latest is { } r && r.Version != _announced)
         {
             _announced = r.Version;
@@ -107,8 +148,15 @@ public partial class App : Application
             ShowBalloon(L.T("Update failed", "Güncellenemedi"), Updater.Error ?? "", null);
             return;
         }
-        Updater.Launch(setup);
-        Quit();
+        try
+        {
+            Updater.Launch(setup);
+            Quit();
+        }
+        catch (Exception ex)
+        {
+            ShowBalloon(L.T("Update failed", "Güncellenemedi"), ex.Message, null);
+        }
     }
 
     private void ShowSetup(bool uninstall)
