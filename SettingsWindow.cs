@@ -133,10 +133,22 @@ public sealed class SettingsWindow : Window
         _recorder = RecorderButton();
         _content.Children.Add(Group(
             Row("", Color.FromRgb(0x8E, 0x8E, 0x93), L.T("Keyboard shortcut", "Klavye kısayolu"), _recorder),
+            Row("\uE765", Color.FromRgb(0x0A, 0x84, 0xFF), L.T("Open with Windows key", "Windows tuşuyla aç"),
+                Switch(s.UseWindowsKey, on =>
+                {
+                    s.UseWindowsKey = on;
+                    s.Save();
+                    bool ok = _search.ApplyWindowsKey();
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        Rebuild();
+                        if (!ok) SetNote(L.T("Windows did not allow the Windows key option.", "Windows, Windows tuşu seçeneğine izin vermedi."), true);
+                    });
+                })),
             Row("", Color.FromRgb(0x34, 0xC7, 0x59), L.T("Start with Windows", "Windows ile başlat"),
                 Switch(App.IsStartupEnabled(), on => App.SetStartup(on)))));
-        _recorderNote = Footnote(L.T("Click the shortcut, then press the new combination. Esc cancels.",
-                                     "Kısayola tıkla, sonra yeni tuş kombinasyonuna bas. Esc iptal eder."));
+        _recorderNote = Footnote(L.T("Click the shortcut, then press the new combination. Esc cancels. With the Windows key option, Win+ shortcuts keep working and the Start menu still opens from its taskbar button.",
+                                     "Kısayola tıkla, sonra yeni tuş kombinasyonuna bas. Esc iptal eder. Windows tuşu seçeneğinde Win+ kısayolları çalışmaya devam eder, Başlat menüsü görev çubuğundaki düğmesinden yine açılır."));
         _content.Children.Add(_recorderNote);
 
         // Software Update
@@ -257,7 +269,7 @@ public sealed class SettingsWindow : Window
         grid.Children.Add(icon);
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         text.Children.Add(new TextBlock { Text = "Spotlight", Foreground = _fg, FontSize = 19, FontWeight = FontWeights.SemiBold, FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI") });
-        text.Children.Add(new TextBlock { Text = L.T($"Version {Installer.Version} · Open with {_search.HotkeyText}", $"Sürüm {Installer.Version} · {_search.HotkeyText} ile aç"), Foreground = _fgDim, FontSize = 12.5, Margin = new Thickness(0, 2, 0, 0) });
+        text.Children.Add(new TextBlock { Text = L.T($"Version {Installer.Version} · Open with {_search.OpenWithText}", $"Sürüm {Installer.Version} · {_search.OpenWithText} ile aç"), Foreground = _fgDim, FontSize = 12.5, Margin = new Thickness(0, 2, 0, 0) });
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
         return new Border { CornerRadius = new CornerRadius(12), Background = _groupBg, Child = grid, Margin = new Thickness(0, 0, 0, 22) };
@@ -345,8 +357,11 @@ public sealed class SettingsWindow : Window
             Cursor = Cursors.Hand,
         };
         var spring = new Spring(on ? 20 : 0, v => knobMove.X = v);
-        track.MouseLeftButtonUp += (_, _) =>
+        // Swallow the press so the card does not start a window drag, which would eat the release.
+        track.MouseLeftButtonDown += (_, e) => e.Handled = true;
+        track.MouseLeftButtonUp += (_, e) =>
         {
+            e.Handled = true;
             on = !on;
             track.Background = on ? SwitchOn : _switchOff;
             spring.To(on ? 20 : 0, 0.3, 0.82);
@@ -425,12 +440,26 @@ public sealed class SettingsWindow : Window
         _recording = true;
         // Free the current shortcut while recording, so pressing it again reaches this window.
         _search.SuspendHotkey();
+        _search.CaptureWindowsKey(OnWindowsKeyRecorded);
         _recorder.Content = L.T("Type shortcut…", "Kısayola bas…");
         _recorder.BorderBrush = AccentBrush;
-        SetNote(L.T("Press the new combination, e.g. Ctrl + Shift + Space. Esc cancels.",
-                    "Yeni kombinasyona bas, ör. Ctrl + Shift + Space. Esc iptal eder."), false);
+        SetNote(L.T("Press the new combination, e.g. Ctrl + Shift + Space, or just the Windows key. Esc cancels.",
+                    "Yeni kombinasyona bas, ör. Ctrl + Shift + Space, ya da yalnızca Windows tuşuna bas. Esc iptal eder."), false);
         Activate();
         Focus();
+    }
+
+    /// <summary>The Windows key alone was pressed while recording: same as turning on the switch below.</summary>
+    private void OnWindowsKeyRecorded()
+    {
+        if (!_recording) return;
+        _recording = false;
+        var s = AppSettings.Current;
+        s.UseWindowsKey = true;
+        s.Save();
+        _search.ResumeHotkey();
+        Rebuild();
+        SetNote(L.T("Spotlight now opens with the Windows key.", "Spotlight artık Windows tuşuyla açılıyor."), false);
     }
 
     private void StopRecording()

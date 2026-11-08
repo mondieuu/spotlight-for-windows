@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.5 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.6 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -98,7 +98,8 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 | **Theme** | System (follows Windows) · Light · Dark |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
 | **Web search** | Google · Bing · DuckDuckGo |
-| **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space |
+| **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space, or just the Windows key |
+| **Open with Windows key** | On / Off. A tap of the Windows key opens Spotlight instead of the Start menu. Win+ shortcuts keep working, and Start still opens from its taskbar button. In windows running as administrator, the key behaves normally. |
 | **Start with Windows** | On / Off |
 | **Software Update** | Shows whether you are up to date; **Check Now** / **Update Now** |
 | **Check automatically** | On / Off. Checks GitHub shortly after start and every 6 hours |

@@ -173,7 +173,7 @@ public partial class App : Application
         _tray = new Forms.NotifyIcon
         {
             Icon = new System.Drawing.Icon(stream),
-            Text = $"Spotlight — {_window!.HotkeyText}",
+            Text = $"Spotlight — {_window!.OpenWithText}",
             Visible = true,
         };
         _tray.DoubleClick += (_, _) => _window.ShowSpotlight();
@@ -189,7 +189,7 @@ public partial class App : Application
         AppSettings.Changed += () => Dispatcher.Invoke(BuildMenu);
         _window.HotkeyChanged += () =>
         {
-            _tray.Text = $"Spotlight — {_window.HotkeyText}";
+            _tray.Text = $"Spotlight — {_window.OpenWithText}";
             BuildMenu();
         };
     }
@@ -204,7 +204,7 @@ public partial class App : Application
             item.Font = new System.Drawing.Font(item.Font, System.Drawing.FontStyle.Bold);
             menu.Items.Add(new Forms.ToolStripSeparator());
         }
-        menu.Items.Add(L.T($"Open ({_window.HotkeyText})", $"Aç ({_window.HotkeyText})"), null, (_, _) => _window.ShowSpotlight());
+        menu.Items.Add(L.T($"Open ({_window.OpenWithText})", $"Aç ({_window.OpenWithText})"), null, (_, _) => _window.ShowSpotlight());
         menu.Items.Add(L.T("Settings…", "Ayarlar…"), null, (_, _) => SettingsWindow.Open(_window));
         menu.Items.Add(L.T("Downloads folder", "İndirilenler klasörü"), null, (_, _) =>
         {

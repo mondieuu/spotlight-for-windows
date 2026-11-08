@@ -75,11 +75,50 @@ public partial class SearchWindow : Window
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
         HwndSource.FromHwnd(hwnd)!.CompositionTarget!.BackgroundColor = Colors.Transparent;
         RegisterSavedHotkey(hwnd);
+        ApplyWindowsKey();
         _ = AppIndex.RefreshAsync(force: true);
         FileIndex.Start();
     }
 
-    public void UnregisterHotkey() => Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+    public void UnregisterHotkey()
+    {
+        Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+        StopWindowsKey();
+    }
+
+    private WinKeyHook? _winKey;
+
+    /// <summary>What opens Spotlight, for the tray and Settings.</summary>
+    public string OpenWithText => AppSettings.Current.UseWindowsKey && _winKey != null ? "Win" : HotkeyText;
+
+    /// <summary>Installs or removes the Windows key hook to match the setting. False if Windows refused the hook.</summary>
+    public bool ApplyWindowsKey()
+    {
+        StopWindowsKey();
+        bool ok = true;
+        if (AppSettings.Current.UseWindowsKey)
+        {
+            // The hook must return quickly, so the window opens after it has returned.
+            _winKey = new WinKeyHook(() => Dispatcher.BeginInvoke(Toggle));
+            ok = _winKey.IsActive;
+            if (!ok) StopWindowsKey();
+        }
+        HotkeyChanged?.Invoke();
+        return ok;
+    }
+
+    /// <summary>While a new shortcut is being recorded: a Windows key tap goes to the recorder, without the Start menu.</summary>
+    public void CaptureWindowsKey(Action onTap)
+    {
+        StopWindowsKey();
+        _winKey = new WinKeyHook(() => Dispatcher.BeginInvoke(onTap));
+    }
+
+    private void StopWindowsKey()
+    {
+        _winKey?.Dispose();
+        _winKey = null;
+    }
 
     /// <summary>Raised after the keyboard shortcut changes (the tray updates its text and menu).</summary>
     public event Action? HotkeyChanged;
@@ -90,6 +129,7 @@ public partial class SearchWindow : Window
     public bool TrySetHotkey(uint modifiers, uint key)
     {
         var hwnd = new WindowInteropHelper(this).Handle;
+        ApplyWindowsKey(); // recording is over
         Native.UnregisterHotKey(hwnd, HotkeyId);
         if (!Native.RegisterHotKey(hwnd, HotkeyId, modifiers | Native.MOD_NOREPEAT, key))
         {
@@ -107,12 +147,16 @@ public partial class SearchWindow : Window
     }
 
     /// <summary>Frees the shortcut while the Settings window records a new one.</summary>
-    public void SuspendHotkey() => Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+    public void SuspendHotkey()
+    {
+        Native.UnregisterHotKey(new WindowInteropHelper(this).Handle, HotkeyId);
+        StopWindowsKey();
+    }
 
     public void ResumeHotkey()
     {
         RegisterSavedHotkey(new WindowInteropHelper(this).Handle);
-        HotkeyChanged?.Invoke();
+        ApplyWindowsKey();
     }
 
     /// <summary>Registers the saved shortcut, or Ctrl+Space if another app (e.g. PowerToys Run) already uses it.</summary>
