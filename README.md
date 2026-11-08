@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.4 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.5 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
