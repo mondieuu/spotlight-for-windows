@@ -411,7 +411,6 @@ public partial class SearchWindow : Window
         };
         Resources["Hairline"] = new SolidColorBrush(dark ? Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x1F, 0x00, 0x00, 0x00));
         Resources["Hover"] = new SolidColorBrush(dark ? Color.FromArgb(0x1A, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x14, 0x00, 0x00, 0x00));
-        Themes.Apply(Resources, AppSettings.Current.CurrentTheme, dark, 0x8C, 0xA6);
         var placeholder = L.T("Spotlight Search", "Spotlight Araması");
         Placeholder.Text = placeholder;
         System.Windows.Automation.AutomationProperties.SetName(Query, placeholder);

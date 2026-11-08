@@ -27,8 +27,7 @@
         <SolidColorBrush x:Key="Tint" Color="#7A1C1C1E" />
         <SolidColorBrush x:Key="Hairline" Color="#26FFFFFF" />
         <SolidColorBrush x:Key="Hover" Color="#14FFFFFF" />
-        <SolidColorBrush x:Key="Accent" Color="#A8C7FA" />
-        <SolidColorBrush x:Key="AccentFg" Color="#10141C" />
+        <SolidColorBrush x:Key="Accent" Color="#0A84FF" />
 
         <!-- Liquid Glass light rim: strong light from the top left, a counter-reflection at the bottom right. -->
         <LinearGradientBrush x:Key="Rim" StartPoint="0,0" EndPoint="1,1">
@@ -86,7 +85,7 @@
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Bg" Property="Background" Value="{DynamicResource Accent}" />
-                                <Setter Property="Foreground" Value="{DynamicResource AccentFg}" />
+                                <Setter Property="Foreground" Value="White" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

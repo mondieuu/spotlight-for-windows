@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/mondieuu/spotlight-for-windows/releases/latest"><b>⬇ Download SpotlightSetup.exe</b></a>
-  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.7 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
+  &nbsp;·&nbsp; Windows 10 / 11 &nbsp;·&nbsp; v1.7.1 &nbsp;·&nbsp; English · <a href="#türkçe">Türkçe</a>
 </p>
 
 ---
@@ -26,7 +26,7 @@ The Liquid Glass design, spring animations, light and dark themes, and English/T
 | ⚙️ **Windows settings** | Wi-Fi, Bluetooth, Display, Windows Update, Dark mode… each one opens the right settings page directly. |
 | 📂 **Paste a path** | Paste `C:\Windows\notepad.exe` or a folder path to open it in File Explorer. |
 | 🎵 **MP3 / MP4 converter** | Paste a YouTube or Instagram link and save it as an MP4 video or an MP3 audio file with one key. |
-| 🌗 **22 themes** | The same themes as the Mondium browser, from System, Light and Dark to Midnight, Forest and Sunset. Changes apply instantly. |
+| 🌗 **Light & dark themes** | Pick Light, Dark or follow Windows in **Settings**. Changes apply instantly. |
 | ⚔️ **Stalin sort** | Results are ordered with Stalin sort: anything out of order is eliminated, so the list stays short and the best match always survives. |
 | 🪟 **Liquid Glass** | Live, crystal-clear glass: videos and windows keep moving behind it. Its curved bezel bends light like a lens, and a thin specular highlight follows the rounded corners. It still shows in screenshots and streams such as Discord, so what you type is visible to viewers. |
 | 🫧 **Fluid motion** | Apple-style spring animations: interruptible, no bounce, and calmer when Windows "Animation effects" is off. |
@@ -97,7 +97,7 @@ Open the Settings window from the tray menu (**Settings…**) or by typing `sett
 
 | Setting | Options |
 |---|---|
-| **Theme** | System, Light, Dark and 19 colored themes |
+| **Theme** | System (follows Windows) · Light · Dark |
 | **Display language** | English · Türkçe. Search understands both languages either way. |
 | **Web search** | Google · Bing · DuckDuckGo |
 | **Keyboard shortcut** | Click it and press any combination, e.g. Ctrl + Shift + Space, or just the Windows key |
